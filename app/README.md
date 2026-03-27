@@ -149,7 +149,8 @@ Encargado de la persistencia:
 
 ## 👨‍💻 Autor
 
-© 2026 Marcos David Chino 
+© 2026 Marcos David Chino (DevChinoC).
+
 Todos los derechos reservados.
 ------------------------------------------------------------------------
 

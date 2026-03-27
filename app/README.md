@@ -15,6 +15,7 @@ Este sistema tiene como objetivo la **generación automática de horarios acadé
 - Tipos de materia (tronco / optativa)  
 
 A diferencia de un sistema centrado en la gestión básica de datos, la solución implementa un motor de asignación inteligente orientado a la generación automatizada de horarios válidos, integrando lógica de negocio, restricciones y mecanismos de resolución de conflictos.
+
 ------------------------------------------------------------------------
 
 ## Stack Tecnológico
@@ -89,6 +90,7 @@ app/
 - ├── infrastructure/
 - ├── db/
 - └── repositories/
+
 test/
 - ├──test_domain/
 - ├──test_repositories

@@ -71,7 +71,7 @@ Evita:
 
 ## 📁 Estructura del Proyecto
 
-app/
+
 - │── main.py
 - │
 - ├── ui/

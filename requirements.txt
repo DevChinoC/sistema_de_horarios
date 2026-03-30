@@ -1,4 +1,4 @@
-sqlalchemy>=2.0.0
-pymysql>=1.1.0
-flet>=0.21.0
-python-dotenv>=1.0.0
+sqlalchemy==2.0.43
+pymysql==1.1.1
+flet[all]==0.28.3
+python-dotenv==1.1.0

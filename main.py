@@ -1,36 +1,45 @@
 import flet as ft
+
+from application.services.planes_service import PlanesService
 from application.services.plan_estudios_service import PlanEstudiosService
-from ui.views.crear_plan_view import CrearPlanView
+from application.services.horario_service import HorarioService
 from ui.components.plan_components import Colores, Fuentes
+from ui.navigation.navegador import Navegador
 
 
 def main(page: ft.Page) -> None:
-    page.title = "Sistema de Horarios"
-    page.window.width = 900
-    page.window.height = 700
-    page.padding = 0
-    page.bgcolor = Colores.BLANCO
+    # ── Configuración de la ventana ───────────────────────────
+    page.title         = "Sistema de Horarios"
+    page.window.width  = 1060
+    page.window.height = 780
+    page.padding       = 0
+    page.bgcolor       = Colores.BLANCO
 
+    # ── Tema global: dropdowns con fondo blanco y texto negro ─
+    page.theme = ft.Theme(
+        color_scheme=ft.ColorScheme(
+            surface=Colores.BLANCO,
+            on_surface="#000000",
+            surface_variant=Colores.BLANCO,
+            on_surface_variant="#000000",
+        ),
+    )
+
+    # ── Fuentes ───────────────────────────────────────────────
     page.fonts = {
         Fuentes.TITULO:  "https://raw.githubusercontent.com/google/fonts/main/ofl/adamina/Adamina-Regular.ttf",
         Fuentes.BOTONES: "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf",
         Fuentes.CAMPOS:  "https://raw.githubusercontent.com/google/fonts/main/ofl/robotocondensed/RobotoCondensed%5Bwght%5D.ttf",
     }
 
-    service = PlanEstudiosService()
-
-    lies_lista = service.obtener_lies()
-    lies_activa = lies_lista[0] if lies_lista else {"id": 1, "nombre": "TICs"}
-
-    vista = CrearPlanView(
+    # ── Navegación ────────────────────────────────────────────
+    nav = Navegador(
         page=page,
-        service=service,
-        lies_activa=lies_activa,
-        on_guardado=lambda: print("Plan guardado exitosamente."),
-        on_cancelado=lambda: print("Cancelado — preparado para navegar a otra pantalla."),
+        planes_service=PlanesService(),
+        plan_service=PlanEstudiosService(),
+        horario_service=HorarioService(),
     )
+    nav.ir_a_planes()
 
-    page.add(vista)
 
-
-ft.app(target=main)
+ft.app(target=main, assets_dir="ui/assets")

@@ -10,7 +10,7 @@ class Colores:
     AZUL_HOVER    = "#1D4ED8"
     ROJO          = "#DC2626"
     BLANCO        = "#FFFFFF"
-    BORDE         = "#CBD5E1"
+    BORDE         = "#0A0A0A"
     TEXTO         = "#1E293B"
     TEXTO_MUTED   = "#64748B"
     FONDO_TABLA   = "#F8FAFC"
@@ -31,7 +31,7 @@ def _opcion(key: str, text: str) -> ft.dropdown.Option:
     return ft.dropdown.Option(
         key=key,
         text=text,
-        text_style=ft.TextStyle(color=Colores.TEXTO, font_family=Fuentes.CAMPOS),
+        text_style=ft.TextStyle(color="#000000", font_family=Fuentes.CAMPOS),
     )
 
 
@@ -272,15 +272,15 @@ class DialogoConfirmacion(ft.AlertDialog):
         self._on_confirmar = on_confirmar
         self._on_cancelar  = on_cancelar
         super().__init__(
-            modal=True, bgcolor=Colores.BLANCO,
+            modal=True, bgcolor=Colores.ROJO,
             shape=ft.RoundedRectangleBorder(radius=10),
             title=ft.Text("¿Estás seguro?", size=18, weight=ft.FontWeight.W_600,
-                          color=Colores.TEXTO, font_family=Fuentes.CAMPOS,
+                          color=Colores.BLANCO, font_family=Fuentes.CAMPOS,
                           text_align=ft.TextAlign.CENTER),
             title_padding=ft.padding.only(top=24, left=24, right=24, bottom=8),
             actions=[
                 ft.ElevatedButton(
-                    text="Sí", bgcolor=Colores.AZUL_PRIMARIO, color=Colores.BLANCO,
+                    text="Sí", bgcolor=Colores.ROJO, color=Colores.BLANCO,
                     on_click=self._si,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=6),
@@ -340,11 +340,12 @@ class FilaMateriaControl:
             border_color         = Colores.BORDE,
             focused_border_color = Colores.AZUL_PRIMARIO,
             bgcolor              = Colores.BLANCO,
-            color                = Colores.TEXTO,
+            fill_color           = Colores.BLANCO,
+            color                = "#000000",
             content_padding      = ft.padding.symmetric(horizontal=8, vertical=2),
             text_size            = 12,
             text_style           = ft.TextStyle(
-                color=Colores.TEXTO, font_family=Fuentes.CAMPOS),
+                color="#000000", font_family=Fuentes.CAMPOS),
         )
 
         self.campo_nombre = ft.TextField(
@@ -355,12 +356,12 @@ class FilaMateriaControl:
             border_color         = Colores.BORDE,
             focused_border_color = Colores.AZUL_PRIMARIO,
             bgcolor              = Colores.BLANCO,
-            color                = Colores.TEXTO,
+            color                = "#000000",
             content_padding      = ft.padding.symmetric(horizontal=8, vertical=6),
             text_size            = 12,
             expand               = True,
             text_style           = ft.TextStyle(
-                color=Colores.TEXTO, font_family=Fuentes.CAMPOS),
+                color="#000000", font_family=Fuentes.CAMPOS),
         )
 
         self.dropdown_tipo = ft.Dropdown(

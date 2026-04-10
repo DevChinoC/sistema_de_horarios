@@ -1,0 +1,78 @@
+import flet as ft
+
+from application.services.planes_service import PlanesService
+from application.services.plan_estudios_service import PlanEstudiosService
+from application.services.horario_service import HorarioService
+from application.dto.planes_dto import PlanDTO
+
+from ui.views.planes_view import PlanesView
+from ui.views.crear_plan_view import CrearPlanView
+from ui.views.detalle_plan_view import DetallePlanView
+
+
+class Navegador:
+    """Gestiona la navegación entre vistas dentro de la misma ventana.
+
+    Todas las vistas comparten la misma ft.Page — no se abren ventanas
+    nuevas. Cada método limpia los controles actuales y agrega la vista
+    correspondiente.
+    """
+
+    def __init__(
+        self,
+        page: ft.Page,
+        planes_service: PlanesService,
+        plan_service: PlanEstudiosService,
+        horario_service: HorarioService,
+    ) -> None:
+        self._page           = page
+        self._planes_svc     = planes_service
+        self._plan_svc       = plan_service
+        self._horario_svc    = horario_service
+
+    # ── Métodos de navegación ─────────────────────────────────
+
+    def ir_a_planes(self) -> None:
+        """Vista principal: selección de grado y plan de estudios."""
+        self._page.controls.clear()
+        vista = PlanesView(
+            page=self._page,
+            service=self._planes_svc,
+            on_cerrar=lambda _: self._page.window.close(),
+            on_ir_crear_plan=self.ir_a_crear_plan,
+            on_abrir_plan=self.ir_a_detalle_plan,
+        )
+        self._page.add(vista)
+
+    def ir_a_crear_plan(self) -> None:
+        """Vista para crear un nuevo plan de estudios."""
+        self._page.controls.clear()
+        lies_lista  = self._plan_svc.obtener_lies()
+        lies_activa = lies_lista[0] if lies_lista else {"id": 1, "nombre": "TICs"}
+        vista = CrearPlanView(
+            page=self._page,
+            service=self._plan_svc,
+            lies_activa=lies_activa,
+            on_guardado=self.ir_a_planes,
+            on_cancelado=self.ir_a_planes,
+        )
+        self._page.add(vista)
+
+    def ir_a_detalle_plan(self, plan: PlanDTO) -> None:
+        """Vista de detalle y asignación de horarios de un plan."""
+        # Leer membrete desde el panel de planes (si está cargado)
+        ruta_membrete = None
+        for ctrl in self._page.controls:
+            if hasattr(ctrl, "_panel_planes"):
+                ruta_membrete = ctrl._panel_planes.ruta_membrete
+                break
+
+        self._page.controls.clear()
+        vista = DetallePlanView(
+            page=self._page,
+            id_plan=plan.id,
+            service=self._horario_svc,
+            on_volver=self.ir_a_planes,
+            ruta_membrete=ruta_membrete,
+        )
+        self._page.add(vista)

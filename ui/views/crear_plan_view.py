@@ -182,7 +182,8 @@ class CrearPlanView(ft.Column):
         return resultado
 
     def _cerrar(self, _=None) -> None:
-        self._limpiar_vista()
+        if self._on_cancelado:
+            self._on_cancelado()
 
     def _confirmar_cancelar(self, _=None) -> None:
         self._page.open(DialogoConfirmacion(
@@ -191,7 +192,6 @@ class CrearPlanView(ft.Column):
         ))
 
     def _ejecutar_cancelar(self) -> None:
-        self._limpiar_vista()
         if self._on_cancelado:
             self._on_cancelado()
 

@@ -2,3 +2,5 @@ sqlalchemy==2.0.43
 pymysql==1.1.1
 flet[all]==0.28.3
 python-dotenv==1.1.0
+reportlab
+PyMuPDF

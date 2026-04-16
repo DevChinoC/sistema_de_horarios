@@ -62,6 +62,23 @@ class HorarioRegistradoDTO:
     numero_semestre: int = 0    # entero para tabla del PDF
 
 
+# ── Detalle completo de un horario (para edición) ────────────
+
+@dataclass
+class HorarioDetalleDTO:
+    id_horario:      int
+    id_asignacion:   int
+    id_semestre:     int
+    id_docente:      int
+    id_aula:         int
+    id_periodo:      int
+    dia:             str
+    hora_inicio:     str   # "HH:MM" 24h
+    hora_fin:        str   # "HH:MM" 24h
+    total_horas:     int
+    periodo_nombre:  str
+
+
 # ── Comando para guardar un horario ──────────────────────────
 
 @dataclass

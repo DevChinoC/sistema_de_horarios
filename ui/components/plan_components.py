@@ -10,7 +10,7 @@ class Colores:
     AZUL_HOVER    = "#1D4ED8"
     ROJO          = "#DC2626"
     BLANCO        = "#FFFFFF"
-    BORDE         = "#0A0A0A"
+    BORDE         = "#1D4ED8"
     TEXTO         = "#1E293B"
     TEXTO_MUTED   = "#64748B"
     FONDO_TABLA   = "#F8FAFC"

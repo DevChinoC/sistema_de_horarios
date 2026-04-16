@@ -241,6 +241,25 @@ class _ScrollTimePicker(ft.Row):
             h = h if h == 12 else h + 12
         return f"{h:02d}:{m:02d}"
 
+    def set_from_24h(self, valor_24h: str) -> None:
+        """Establece el picker a partir de un valor HH:MM en formato 24h."""
+        try:
+            parts = valor_24h.split(":")
+            h24, m = int(parts[0]), int(parts[1])
+            if h24 == 0:
+                h12, ap = 12, "A.M"
+            elif h24 < 12:
+                h12, ap = h24, "A.M"
+            elif h24 == 12:
+                h12, ap = 12, "P.M"
+            else:
+                h12, ap = h24 - 12, "P.M"
+            self._h.value  = str(h12)
+            self._m.value  = f"{m:02d}"
+            self._ap.value = ap
+        except (ValueError, IndexError):
+            pass
+
     @property
     def value(self) -> str:
         return self.get_24h()
@@ -312,6 +331,12 @@ class _DropdownConNuevo(ft.Stack):
     def value(self) -> str | None:
         return self._dd.value
 
+    @value.setter
+    def value(self, v: str | None) -> None:
+        self._dd.value = v
+        if self.page:
+            self._dd.update()
+
     def reconstruir_opciones(
         self,
         nuevas: list[ft.dropdown.Option],
@@ -380,6 +405,9 @@ class DetallePlanView(ft.Column):
         self._service       = service
         self._on_volver     = on_volver
         self._ruta_membrete = ruta_membrete
+
+        # ── Estado de edición ─────────────────────────────────
+        self._editando_id: int | None = None   # id_horario en edición
 
         # ── FilePicker para guardar PDF ────────────────────────
         self._save_picker = ft.FilePicker(on_result=self._on_save_result)
@@ -569,20 +597,6 @@ class DetallePlanView(ft.Column):
             **_tf_kw(_W_PER, hint="Ej: Feb-Jun 2024"),
         )
 
-        col2 = ft.Column(
-            spacing=4,
-            controls=[
-                _lbl("Unidad de aprendizaje"),
-                self._unidad_stack,
-                ft.Container(height=8),
-                _lbl("Aulas"),
-                self._ctrl_aula,
-                ft.Container(height=8),
-                _lbl("Periodo"),
-                self._campo_periodo,
-            ],
-        )
-
         # ════════════════════ COL 3 ════════════════════════════
 
         self._tipo_txt = ft.Text(
@@ -605,9 +619,11 @@ class DetallePlanView(ft.Column):
             on_crear=self._crear_docente,
         )
 
-        btn_agregar = ft.ElevatedButton(
+        # ════════════════════ BOTONES ═════════════════════════
+
+        self._btn_accion = ft.ElevatedButton(
             text="+ Agregar",
-            on_click=self._agregar,
+            on_click=self._on_btn_accion,
             bgcolor=Colores.AZUL_PRIMARIO, color=Colores.BLANCO,
             width=220,
             style=ft.ButtonStyle(
@@ -620,6 +636,41 @@ class DetallePlanView(ft.Column):
             elevation=0,
         )
 
+        self._btn_cancelar = ft.ElevatedButton(
+            text="Cancelar",
+            on_click=lambda _: self._confirmar_cancelar_edicion(),
+            width=220,
+            visible=False,
+            bgcolor=Colores.ROJO,
+            color=Colores.BLANCO,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=6),
+                padding=ft.padding.symmetric(horizontal=20, vertical=14),
+                text_style=ft.TextStyle(
+                    size=15, weight=ft.FontWeight.BOLD,
+                    font_family=Fuentes.BOTONES),
+            ),
+            elevation=0,
+        )
+
+        # ════════════════════ COLUMNAS ═════════════════════════
+
+        col2 = ft.Column(
+            spacing=4,
+            controls=[
+                _lbl("Unidad de aprendizaje"),
+                self._unidad_stack,
+                ft.Container(height=8),
+                _lbl("Aulas"),
+                self._ctrl_aula,
+                ft.Container(height=8),
+                _lbl("Periodo"),
+                self._campo_periodo,
+                ft.Container(height=14),
+                self._btn_accion,
+            ],
+        )
+
         col3 = ft.Column(
             spacing=4,
             controls=[
@@ -628,8 +679,8 @@ class DetallePlanView(ft.Column):
                 ft.Container(height=8),
                 _lbl("Docente"),
                 self._ctrl_docente,
-                ft.Container(height=20),
-                btn_agregar,
+                ft.Container(height=108),
+                self._btn_cancelar
             ],
         )
 
@@ -966,9 +1017,17 @@ class DetallePlanView(ft.Column):
             except Exception:
                 pass
 
-    # ── Guardar horario ───────────────────────────────────────
+    # ── Botón de acción (Agregar / Guardar) ────────────────────
 
-    def _agregar(self, _) -> None:
+    def _on_btn_accion(self, _) -> None:
+        if self._editando_id is not None:
+            self._guardar_edicion()
+        else:
+            self._agregar()
+
+    # ── Guardar horario (nuevo) ───────────────────────────────
+
+    def _agregar(self) -> None:
         id_asig     = self._dd_unidad.value
         id_aula     = self._ctrl_aula.value
         id_doc      = self._ctrl_docente.value
@@ -1018,6 +1077,169 @@ class DetallePlanView(ft.Column):
         self._msg("¡Horario agregado correctamente!")
         self._recargar_tabla()
 
+    # ── Edición: iniciar ──────────────────────────────────────
+
+    def _iniciar_edicion(self, id_horario: int) -> None:
+        """Carga los datos del horario en los campos del formulario."""
+        detalle = self._service.obtener_horario_detalle(id_horario)
+        if detalle is None:
+            self._msg("No se encontró el horario."); return
+
+        self._editando_id = id_horario
+
+        # 1. Semestre
+        self._dd_semestre.value = str(detalle.id_semestre)
+        if self.page:
+            self._dd_semestre.update()
+        # Cargar unidades para ese semestre
+        self._on_semestre_cambiado(None)
+
+        # 2. Unidad de aprendizaje
+        self._dd_unidad.value = str(detalle.id_asignacion)
+        if self.page:
+            self._dd_unidad.update()
+        # Auto-tipo
+        self._on_unidad_cambiada(None)
+
+        # 3. Aula
+        self._ctrl_aula.value = str(detalle.id_aula)
+
+        # 4. Docente
+        self._ctrl_docente.value = str(detalle.id_docente)
+
+        # 5. Periodo
+        self._campo_periodo.value = detalle.periodo_nombre
+        if self.page:
+            self._campo_periodo.update()
+
+        # 6. Horario (día + horas) – usar la primera fila
+        # Limpiar filas extra y dejar solo una
+        while len(self._filas_horario) > 1:
+            f = self._filas_horario.pop()
+            self._col_horarios.controls.remove(f)
+        fila = self._filas_horario[0]
+        fila.dd_dia.value = detalle.dia
+        if self.page:
+            fila.dd_dia.update()
+        fila.hora_inicio.set_from_24h(detalle.hora_inicio)
+        fila.hora_fin.set_from_24h(detalle.hora_fin)
+        self._actualizar_total(None)
+
+        # 7. Cambiar botón a "Guardar" + mostrar "Cancelar"
+        self._btn_accion.text = "Guardar"
+        self._btn_accion.bgcolor = Colores.AZUL_PRIMARIO
+        self._btn_cancelar.visible = True
+        if self.page:
+            self._btn_accion.update()
+            self._btn_cancelar.update()
+            self._col_horarios.update()
+
+    # ── Edición: confirmar cancelar ────────────────────────────
+
+    def _confirmar_cancelar_edicion(self) -> None:
+        """Muestra diálogo ¿Estás seguro? antes de cancelar la edición."""
+        self._page.open(DialogoConfirmacion(
+            page=self._page,
+            on_confirmar=lambda: self._cancelar_edicion(),
+        ))
+
+    # ── Edición: cancelar ─────────────────────────────────────
+
+    def _cancelar_edicion(self) -> None:
+        """Restaura el formulario al modo agregar."""
+        self._editando_id = None
+
+        # Restaurar botón
+        self._btn_accion.text = "+ Agregar"
+        self._btn_accion.bgcolor = Colores.AZUL_PRIMARIO
+        self._btn_cancelar.visible = False
+
+        # Limpiar campos
+        self._dd_semestre.value = None
+        self._dd_unidad.options = []
+        self._dd_unidad.value = None
+        self._dd_unidad.disabled = True
+        self._tipo_txt.value = ""
+        self._ctrl_aula.value = None
+        self._ctrl_docente.value = None
+        self._campo_periodo.value = ""
+
+        # Restaurar horario a una fila vacía
+        while len(self._filas_horario) > 1:
+            f = self._filas_horario.pop()
+            self._col_horarios.controls.remove(f)
+        fila = self._filas_horario[0]
+        fila.dd_dia.value = None
+        # Reset time pickers to defaults
+        fila.hora_inicio.set_from_24h("01:00")
+        fila.hora_fin.set_from_24h("01:00")
+        self._actualizar_total(None)
+
+        if self.page:
+            self._btn_accion.update()
+            self._btn_cancelar.update()
+            self._dd_semestre.update()
+            self._dd_unidad.update()
+            self._tipo_txt.update()
+            self._campo_periodo.update()
+            fila.dd_dia.update()
+            self._col_horarios.update()
+
+    # ── Edición: guardar cambios ──────────────────────────────
+
+    def _guardar_edicion(self) -> None:
+        """Guarda los cambios del horario en edición."""
+        id_asig     = self._dd_unidad.value
+        id_aula     = self._ctrl_aula.value
+        id_doc      = self._ctrl_docente.value
+        periodo_txt = (self._campo_periodo.value or "").strip()
+
+        if not id_asig:
+            self._msg("Selecciona una unidad de aprendizaje."); return
+        if not id_aula or id_aula == _KEY_NUEVO:
+            self._msg("Selecciona un aula."); return
+        if not id_doc or id_doc == _KEY_NUEVO:
+            self._msg("Selecciona un docente."); return
+        if not periodo_txt:
+            self._msg("Escribe el periodo."); return
+
+        periodo_dto = self._service.crear_periodo(periodo_txt)
+        if periodo_dto is None:
+            self._msg("Error al registrar el periodo."); return
+
+        fila = self._filas_horario[0]
+        dia = (fila.dd_dia.value or "").strip()
+        hi  = fila.hora_inicio.get_24h()
+        hf  = fila.hora_fin.get_24h()
+
+        if not dia:
+            self._msg("Selecciona un día."); return
+
+        try:
+            t0    = datetime.strptime(hi, "%H:%M")
+            t1    = datetime.strptime(hf, "%H:%M")
+            delta = max(0, (t1 - t0).seconds) // 3600
+        except ValueError:
+            self._msg(f"Formato inválido: {hi} – {hf}"); return
+
+        ok, msg = self._service.actualizar_horario(
+            id_horario=self._editando_id,
+            dto=GuardarHorarioDTO(
+                id_asignacion=int(id_asig),
+                id_docente=int(id_doc),
+                id_aula=int(id_aula),
+                id_periodo=periodo_dto.id,
+                dia=dia, hora_inicio=hi, hora_fin=hf,
+                total_horas=delta, id_plan=self._id_plan,
+            ),
+        )
+        if not ok:
+            self._msg(msg); return
+
+        self._msg("¡Horario actualizado correctamente!")
+        self._cancelar_edicion()
+        self._recargar_tabla()
+
     # ── Tabla inferior ────────────────────────────────────────
 
     def _recargar_tabla(self) -> None:
@@ -1044,7 +1266,7 @@ class DetallePlanView(ft.Column):
                         icon_color=Colores.AZUL_PRIMARIO,
                         icon_size=16, tooltip="Editar",
                         on_click=lambda _, rid=r.id_horario:
-                            self._msg("Editar: próximamente"),
+                            self._iniciar_edicion(rid),
                     ),
                     ft.IconButton(
                         icon=ft.Icons.DELETE,

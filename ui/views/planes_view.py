@@ -2,9 +2,11 @@ import flet as ft
 from typing import Callable
 
 from application.services.planes_service import PlanesService
+from application.services.horario_service import HorarioService
 from application.dto.planes_dto import NivelDTO, PlanDTO
 from ui.components.plan_components import Colores, Fuentes, BotonPrimario
 from ui.components.puerta_animada import PuertaAnimada
+from ui.views.horario_docente_view import HorarioDocenteView
 
 
 # ─────────────────────────────────────────────────────────────
@@ -375,11 +377,13 @@ class PlanesView(ft.Column):
         on_cerrar: Callable,
         on_ir_crear_plan: Callable,
         on_abrir_plan: Callable[[PlanDTO], None],
+        horario_service: HorarioService | None = None,
     ) -> None:
-        self._page            = page
-        self._service         = service
-        self._on_ir_crear_plan = on_ir_crear_plan
-        self._on_abrir_plan   = on_abrir_plan
+        self._page              = page
+        self._service           = service
+        self._on_ir_crear_plan  = on_ir_crear_plan
+        self._on_abrir_plan     = on_abrir_plan
+        self._horario_svc       = horario_service
 
         # ── Cabecera ──────────────────────────────────────────
         self._cabecera = CabeceraApp(on_cerrar=on_cerrar)
@@ -453,6 +457,22 @@ class PlanesView(ft.Column):
                 self._logo_fondo,
             ]
             self._panel_planes.cargar_niveles()
+            if self.page:
+                self._area_contenido.update()
+        elif tab == "Horario por docente":
+            ruta_membrete = self._panel_planes.ruta_membrete
+            vista_docente = HorarioDocenteView(
+                page=self._page,
+                service=self._horario_svc or HorarioService(),
+                ruta_membrete=ruta_membrete,
+            )
+            self._area_contenido.controls = [
+                ft.Container(
+                    content=vista_docente,
+                    alignment=ft.alignment.center,
+                    expand=True,
+                ),
+            ]
             if self.page:
                 self._area_contenido.update()
         else:

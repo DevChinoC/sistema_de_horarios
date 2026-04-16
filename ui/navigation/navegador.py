@@ -41,6 +41,7 @@ class Navegador:
             on_cerrar=lambda _: self._page.window.close(),
             on_ir_crear_plan=self.ir_a_crear_plan,
             on_abrir_plan=self.ir_a_detalle_plan,
+            horario_service=self._horario_svc,
         )
         self._page.add(vista)
 

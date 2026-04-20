@@ -432,3 +432,55 @@ class HorarioService:
         finally:
             session.close()
 
+    def obtener_historial_planes(self) -> list:
+        """Retorna todos los registros de planes_generados para el historial."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class HistorialItemDTO:
+            id_plan_generado: int
+            clave: str
+            nombre_plan: str
+            nombre_nivel: str
+            nombre_periodo: str
+
+        session = self._db.get_session()
+        try:
+            rows = HorarioRepository(session).obtener_historial_planes()
+            return [
+                HistorialItemDTO(
+                    id_plan_generado=r.id_plan_generado,
+                    clave=str(idx).zfill(3),
+                    nombre_plan=r.nombre_plan,
+                    nombre_nivel=r.nombre_nivel,
+                    nombre_periodo=r.nombre_periodo,
+                )
+                for idx, r in enumerate(rows, start=1)
+            ]
+        finally:
+            session.close()
+
+    def eliminar_plan_generado(self, id_plan_generado: int) -> tuple[bool, str]:
+        """Elimina un plan generado (historial) y todos sus horarios."""
+        session = self._db.get_session()
+        repo    = HorarioRepository(session)
+        try:
+            repo.eliminar_plan_generado(id_plan_generado)
+            repo.commit()
+            return True, "Registro eliminado correctamente."
+        except Exception as e:
+            repo.rollback()
+            return False, f"Error al eliminar: {e}"
+        finally:
+            session.close()
+
+    def obtener_id_plan_de_plan_generado(self, id_plan_generado: int) -> int | None:
+        """Retorna el id_plan asociado a un plan_generado."""
+        session = self._db.get_session()
+        try:
+            from infrastructure.db.models import PlanGeneradoModel
+            pg = session.query(PlanGeneradoModel).get(id_plan_generado)
+            return pg.id_plan if pg else None
+        finally:
+            session.close()
+

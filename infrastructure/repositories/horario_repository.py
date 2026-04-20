@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from infrastructure.db.models import (
-    PlanEstudiosModel, LiesModel, SemestreModel,
+    PlanEstudiosModel, LiesModel, SemestreModel, NivelAcademicoModel,
     DetalleSemestreModel, AsignacionMateriaModel,
     MateriaTroncoModel, OptativaModel,
     DocenteModel, AulaModel, PeriodoEscolarModel,
@@ -368,6 +368,35 @@ class HorarioRepository:
         self._s.add(periodo)
         self._s.flush()
         return periodo
+
+
+    def obtener_historial_planes(self) -> list[tuple]:
+        """Retorna todos los planes_generados con info de plan, nivel y periodo."""
+        return (
+            self._s.query(
+                PlanGeneradoModel.id_plan_generado,
+                PlanEstudiosModel.nombre.label("nombre_plan"),
+                NivelAcademicoModel.nombre.label("nombre_nivel"),
+                PeriodoEscolarModel.nombre.label("nombre_periodo"),
+            )
+            .join(PlanEstudiosModel,
+                  PlanEstudiosModel.id_plan == PlanGeneradoModel.id_plan)
+            .join(NivelAcademicoModel,
+                  NivelAcademicoModel.id_nivel == PlanEstudiosModel.id_nivel)
+            .join(PeriodoEscolarModel,
+                  PeriodoEscolarModel.id_periodo == PlanGeneradoModel.id_periodo)
+            .order_by(PlanGeneradoModel.id_plan_generado.desc())
+            .all()
+        )
+
+    def eliminar_plan_generado(self, id_plan_generado: int) -> None:
+        """Elimina todos los horarios de un plan_generado y luego el plan_generado."""
+        self._s.query(HorarioModel).filter_by(
+            id_plan_generado=id_plan_generado).delete()
+        pg = self._s.query(PlanGeneradoModel).get(id_plan_generado)
+        if pg:
+            self._s.delete(pg)
+        self._s.flush()
 
     def commit(self)   -> None: self._s.commit()
     def rollback(self) -> None: self._s.rollback()

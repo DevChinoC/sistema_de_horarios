@@ -409,13 +409,16 @@ class HorarioDocenteView(ft.Container):
     def _on_docente_cambiado(self, _) -> None:
         """Al seleccionar docente, cargar solo sus periodos."""
         id_doc = self._dd_docente.value
-        # Resetear los 3 dependientes
+
+        # Resetear los 3 dependientes completamente
         self._dd_periodo.value = None
         self._dd_periodo.options = []
         self._dd_periodo.disabled = True
+
         self._dd_plan.value = None
         self._dd_plan.options = []
         self._dd_plan.disabled = True
+
         self._dd_semestre.value = None
         self._dd_semestre.options = []
         self._dd_semestre.disabled = True
@@ -425,7 +428,7 @@ class HorarioDocenteView(ft.Container):
             self._dd_periodo.options = [
                 _opcion(str(p.id), p.nombre) for p in periodos
             ]
-            self._dd_periodo.disabled = len(periodos) == 0
+            self._dd_periodo.disabled = (len(periodos) == 0)
 
         if self.page:
             self._dd_periodo.update()
@@ -436,10 +439,12 @@ class HorarioDocenteView(ft.Container):
         """Al seleccionar periodo, cargar planes del docente en ese periodo."""
         id_doc = self._dd_docente.value
         id_per = self._dd_periodo.value
+
         # Resetear plan y semestre
         self._dd_plan.value = None
         self._dd_plan.options = []
         self._dd_plan.disabled = True
+
         self._dd_semestre.value = None
         self._dd_semestre.options = []
         self._dd_semestre.disabled = True
@@ -450,7 +455,7 @@ class HorarioDocenteView(ft.Container):
             self._dd_plan.options = [
                 _opcion(str(p.id), p.nombre) for p in planes
             ]
-            self._dd_plan.disabled = len(planes) == 0
+            self._dd_plan.disabled = (len(planes) == 0)
 
         if self.page:
             self._dd_plan.update()
@@ -458,10 +463,11 @@ class HorarioDocenteView(ft.Container):
 
     def _on_plan_cambiado(self, _) -> None:
         """Al seleccionar plan, cargar semestres del docente en ese plan+periodo."""
-        id_doc = self._dd_docente.value
-        id_per = self._dd_periodo.value
+        id_doc  = self._dd_docente.value
+        id_per  = self._dd_periodo.value
         id_plan = self._dd_plan.value
-        # Resetear semestre
+
+        # Resetear semestre siempre
         self._dd_semestre.value = None
         self._dd_semestre.options = []
         self._dd_semestre.disabled = True
@@ -473,7 +479,8 @@ class HorarioDocenteView(ft.Container):
                 _opcion(str(s.id), f"Semestre {s.numero}")
                 for s in sems
             ]
-            self._dd_semestre.disabled = len(sems) == 0
+            # FIX: habilitar solo si hay semestres disponibles
+            self._dd_semestre.disabled = (len(sems) == 0)
 
         if self.page:
             self._dd_semestre.update()
@@ -482,11 +489,10 @@ class HorarioDocenteView(ft.Container):
 
     def _generar(self) -> None:
         """Valida, consulta la BD, genera la previsualización y el Word."""
-        # Validar campos obligatorios
-        id_doc = self._dd_docente.value
-        id_per = self._dd_periodo.value
+        id_doc  = self._dd_docente.value
+        id_per  = self._dd_periodo.value
         id_plan = self._dd_plan.value
-        id_sem = self._dd_semestre.value
+        id_sem  = self._dd_semestre.value
 
         if not id_doc:
             self._msg("Selecciona un docente."); return
@@ -499,7 +505,6 @@ class HorarioDocenteView(ft.Container):
         if not self._ruta_membrete:
             self._msg("Selecciona un membrete antes de generar."); return
 
-        # Consultar el horario del docente
         resumen = self._service.obtener_horarios_docente(
             id_docente=int(id_doc),
             id_plan=int(id_plan),
@@ -513,10 +518,7 @@ class HorarioDocenteView(ft.Container):
             return
 
         self._resumen = resumen
-
-        # Construir previsualización
         self._construir_preview()
-
         self._msg("¡Horario generado correctamente!")
 
     def _construir_preview(self) -> None:
@@ -526,13 +528,11 @@ class HorarioDocenteView(ft.Container):
 
         filas = self._resumen.filas
 
-        # Franjas horarias únicas ordenadas
         franjas = sorted(set(
             (f.hora_inicio, f.hora_fin) for f in filas
             if f.hora_inicio and f.hora_fin
         ))
 
-        # Mapa: (dia, hora_inicio) → nombre_materia
         mapa: dict[tuple, str] = {}
         for f in filas:
             if f.dia and f.hora_inicio:
@@ -585,6 +585,7 @@ class HorarioDocenteView(ft.Container):
         if not self._resumen:
             self._msg("Primero genera el horario.")
             return
+
 
         ruta_pdf = os.path.join(
             tempfile.gettempdir(),
@@ -659,6 +660,7 @@ class HorarioDocenteView(ft.Container):
             self._msg("Primero genera el horario.")
             return
 
+
         nombre_doc = self._resumen.nombre_docente.replace(" ", "_")
         self._save_picker.save_file(
             dialog_title="Guardar horario docente",
@@ -705,8 +707,13 @@ class HorarioDocenteView(ft.Container):
 
     def _limpiar(self) -> None:
         """Resetea todos los campos y oculta la previsualización."""
+        # Resetear docente y recargar sus opciones originales
         self._dd_docente.value = None
+        self._dd_docente.options = [
+            _opcion(str(d.id), d.nombre) for d in self._docentes
+        ]
 
+        # Resetear cascada completa con opciones vacías
         self._dd_periodo.value = None
         self._dd_periodo.options = []
         self._dd_periodo.disabled = True
@@ -719,8 +726,10 @@ class HorarioDocenteView(ft.Container):
         self._dd_semestre.options = []
         self._dd_semestre.disabled = True
 
+        # Limpiar resultado
         self._resumen = None
 
+        # Ocultar panel de previsualización
         self._tabla_prev.rows = []
         self._tabla_prev.visible = False
         self._lbl_prev.visible = False

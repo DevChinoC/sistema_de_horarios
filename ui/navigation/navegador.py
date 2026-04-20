@@ -42,6 +42,7 @@ class Navegador:
             on_ir_crear_plan=self.ir_a_crear_plan,
             on_abrir_plan=self.ir_a_detalle_plan,
             horario_service=self._horario_svc,
+            on_abrir_plan_por_id=self.ir_a_detalle_plan_por_id,
         )
         self._page.add(vista)
 
@@ -72,6 +73,24 @@ class Navegador:
         vista = DetallePlanView(
             page=self._page,
             id_plan=plan.id,
+            service=self._horario_svc,
+            on_volver=self.ir_a_planes,
+            ruta_membrete=ruta_membrete,
+        )
+        self._page.add(vista)
+
+    def ir_a_detalle_plan_por_id(self, id_plan: int) -> None:
+        """Navega a DetallePlanView usando directamente un id_plan (desde historial)."""
+        ruta_membrete = None
+        for ctrl in self._page.controls:
+            if hasattr(ctrl, "_panel_planes"):
+                ruta_membrete = ctrl._panel_planes.ruta_membrete
+                break
+
+        self._page.controls.clear()
+        vista = DetallePlanView(
+            page=self._page,
+            id_plan=id_plan,
             service=self._horario_svc,
             on_volver=self.ir_a_planes,
             ruta_membrete=ruta_membrete,

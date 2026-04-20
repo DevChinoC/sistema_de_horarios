@@ -7,6 +7,7 @@ from application.dto.planes_dto import NivelDTO, PlanDTO
 from ui.components.plan_components import Colores, Fuentes, BotonPrimario
 from ui.components.puerta_animada import PuertaAnimada
 from ui.views.horario_docente_view import HorarioDocenteView
+from ui.views.historial_view import HistorialView
 
 
 # ─────────────────────────────────────────────────────────────
@@ -378,12 +379,14 @@ class PlanesView(ft.Column):
         on_ir_crear_plan: Callable,
         on_abrir_plan: Callable[[PlanDTO], None],
         horario_service: HorarioService | None = None,
+        on_abrir_plan_por_id: Callable[[int], None] | None = None,
     ) -> None:
         self._page              = page
         self._service           = service
         self._on_ir_crear_plan  = on_ir_crear_plan
         self._on_abrir_plan     = on_abrir_plan
         self._horario_svc       = horario_service
+        self._on_abrir_plan_por_id = on_abrir_plan_por_id
 
         # ── Cabecera ──────────────────────────────────────────
         self._cabecera = CabeceraApp(on_cerrar=on_cerrar)
@@ -475,18 +478,22 @@ class PlanesView(ft.Column):
             ]
             if self.page:
                 self._area_contenido.update()
-        else:
-            # Placeholder para tabs pendientes
+        elif tab == "Historial":
+            ruta_membrete = self._panel_planes.ruta_membrete
+            vista_historial = HistorialView(
+                page=self._page,
+                service=self._horario_svc or HorarioService(),
+                on_editar_plan=self._on_abrir_plan_por_id
+                    if self._on_abrir_plan_por_id
+                    else lambda _: None,
+                ruta_membrete=ruta_membrete,
+            )
             self._area_contenido.controls = [
                 ft.Container(
-                    expand=True,
+                    content=vista_historial,
                     alignment=ft.alignment.center,
-                    content=ft.Text(
-                        f"Sección '{tab}' — próximamente",
-                        size=16, color=Colores.TEXTO_MUTED,
-                        font_family=Fuentes.CAMPOS,
-                    ),
-                )
+                    expand=True,
+                ),
             ]
             if self.page:
                 self._area_contenido.update()

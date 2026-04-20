@@ -727,7 +727,7 @@ class DetallePlanView(ft.Column):
                 controls=[
                     ft.Row(
                         controls=[self._tabla],
-                        expand=True,         
+                        expand=True,
                     ),
                     ft.Container(height=10),
                     ft.Row(
@@ -1184,6 +1184,8 @@ class DetallePlanView(ft.Column):
             self._campo_periodo.update()
             fila.dd_dia.update()
             self._col_horarios.update()
+            self._ctrl_aula.update()
+            self._ctrl_docente.update()
 
     # ── Edición: guardar cambios ──────────────────────────────
 
@@ -1426,6 +1428,27 @@ class DetallePlanView(ft.Column):
     # ── Navegación y mensajes ─────────────────────────────────
 
     def _volver(self) -> None:
+        # Limpiar estado del formulario para que al volver quede vacío
+        self._editando_id = None
+        self._dd_semestre.value = None
+        self._dd_unidad.options = []
+        self._dd_unidad.value = None
+        self._dd_unidad.disabled = True
+        self._tipo_txt.value = ""
+        self._ctrl_aula.value = None
+        self._ctrl_docente.value = None
+        self._campo_periodo.value = ""
+        # Restaurar horario a una fila vacía
+        while len(self._filas_horario) > 1:
+            f = self._filas_horario.pop()
+            self._col_horarios.controls.remove(f)
+        fila = self._filas_horario[0]
+        fila.dd_dia.value = None
+        fila.hora_inicio.set_from_24h("01:00")
+        fila.hora_fin.set_from_24h("01:00")
+        self._actualizar_total(None)
+        self._btn_accion.text = "+ Agregar"
+        self._btn_cancelar.visible = False
         if self._on_volver:
             self._on_volver()
 

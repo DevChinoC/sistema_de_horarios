@@ -10,6 +10,7 @@ agrupados por semestre/periodo. Permite:
 """
 
 import os
+import shutil
 import tempfile
 from typing import Callable
 
@@ -72,6 +73,9 @@ class HistorialView(ft.Container):
         self._service        = service
         self._on_editar_plan = on_editar_plan
         self._ruta_membrete  = ruta_membrete
+
+        # ── FilePicker para exportar PDF ──────────────────────
+        self._save_picker = ft.FilePicker(on_result=self._on_save_result)
 
         # Datos completos del historial
         self._todos: list = []
@@ -267,6 +271,10 @@ class HistorialView(ft.Container):
 
     def did_mount(self) -> None:
         """Cargar datos al montar la vista (solo filtros, tabla oculta)."""
+        # Agregar FilePicker al overlay de la página
+        if self._save_picker not in self._page.overlay:
+            self._page.overlay.append(self._save_picker)
+            self._page.update()
         self._cargar_datos()
 
     def _cargar_datos(self) -> None:
@@ -606,11 +614,90 @@ class HistorialView(ft.Container):
             self._lbl_seleccion.update()
 
     def _exportar(self) -> None:
-        """Exporta el plan seleccionado."""
+        """Abre diálogo del sistema para elegir dónde guardar el PDF."""
         if not self._selected_item:
             self._msg("Selecciona una fila de la tabla primero.")
             return
-        self._msg("Función de exportar historial próximamente.")
+
+        if not self._ruta_membrete:
+            self._msg(
+                "Selecciona un membrete en la pestaña 'Planes de estudios' "
+                "antes de exportar."
+            )
+            return
+
+        item = self._selected_item
+        id_plan = self._service.obtener_id_plan_de_plan_generado(
+            item.id_plan_generado
+        )
+        if id_plan is None:
+            self._msg("No se encontró el plan asociado.")
+            return
+
+        registros = self._service.obtener_horarios(id_plan)
+        if not registros:
+            self._msg("No hay horarios registrados para este plan.")
+            return
+
+        # Nombre sugerido para el archivo
+        nombre_archivo = (
+            f"horario_{item.nombre_plan}_{item.nombre_periodo}.pdf"
+            .replace(" ", "_")
+        )
+
+        self._save_picker.save_file(
+            dialog_title="Guardar PDF de horario",
+            file_name=nombre_archivo,
+            allowed_extensions=["pdf"],
+        )
+
+    def _on_save_result(self, e: ft.FilePickerResultEvent) -> None:
+        """Callback del FilePicker — genera el PDF en la ruta seleccionada."""
+        if not e.path:
+            return
+
+        ruta = e.path
+        if not ruta.lower().endswith(".pdf"):
+            ruta += ".pdf"
+
+        item = self._selected_item
+        if not item:
+            self._msg("No hay un plan seleccionado.")
+            return
+
+        id_plan = self._service.obtener_id_plan_de_plan_generado(
+            item.id_plan_generado
+        )
+        if id_plan is None:
+            self._msg("No se encontró el plan asociado.")
+            return
+
+        try:
+            from ui.pdf.generador_pdf import GeneradorPDF
+
+            registros = self._service.obtener_horarios(id_plan)
+            if not registros:
+                self._msg("No hay horarios registrados para este plan.")
+                return
+
+            # Generar PDF en un temporal y luego copiar a la ruta elegida
+            ruta_tmp = os.path.join(
+                tempfile.gettempdir(),
+                f"export_{item.id_plan_generado}.pdf",
+            )
+            GeneradorPDF(
+                horarios=registros,
+                nombre_plan=item.nombre_plan,
+                nombre_lies="",
+                ruta_membrete=self._ruta_membrete,
+                ruta_salida=ruta_tmp,
+            ).generar()
+
+            # Copiar al destino elegido por el usuario
+            shutil.copy2(ruta_tmp, ruta)
+            self._msg(f"PDF guardado en: {ruta}")
+        except Exception as exc:
+            self._msg(f"Error al exportar PDF: {exc}")
 
     # ── Helpers ───────────────────────────────────────────────
 

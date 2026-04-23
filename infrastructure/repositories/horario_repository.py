@@ -398,5 +398,79 @@ class HorarioRepository:
             self._s.delete(pg)
         self._s.flush()
 
+    # ── Validación tronco común entre LIES ────────────────────
+
+    def obtener_horario_tronco_existente(
+        self,
+        id_plan: int,
+        id_materia: int,
+        excluir_id_asignacion: int | None = None,
+    ) -> list[tuple]:
+        """Busca horarios ya registrados para la misma materia de tronco
+        (id_materia) en *cualquier* LIES del mismo plan.
+
+        Retorna lista de (dia, hora_inicio, hora_fin, lies_nombre).
+        Se puede excluir un id_asignacion específico (útil al editar).
+        """
+        q = (
+            self._s.query(
+                HorarioModel.dia,
+                HorarioModel.hora_inicio,
+                HorarioModel.hora_fin,
+                LiesModel.nombre.label("lies_nombre"),
+            )
+            .join(PlanGeneradoModel,
+                  PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
+            .join(AsignacionMateriaModel,
+                  AsignacionMateriaModel.id_asignacion == HorarioModel.id_asignacion)
+            .join(DetalleSemestreModel,
+                  DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
+            .join(LiesModel,
+                  LiesModel.id_lies == DetalleSemestreModel.id_lies)
+            .filter(
+                PlanGeneradoModel.id_plan == id_plan,
+                AsignacionMateriaModel.id_materia == id_materia,
+            )
+        )
+        if excluir_id_asignacion is not None:
+            q = q.filter(
+                AsignacionMateriaModel.id_asignacion != excluir_id_asignacion)
+        return q.all()
+
+    def obtener_id_materia_de_asignacion(
+        self, id_asignacion: int,
+    ) -> int | None:
+        """Retorna el id_materia (tronco) de una asignación, o None si es optativa."""
+        asig = self._s.query(AsignacionMateriaModel).get(id_asignacion)
+        return asig.id_materia if asig else None
+
+    def obtener_horarios_tronco_del_plan(
+        self, id_plan: int,
+    ) -> list[tuple]:
+        """Retorna todos los horarios de materias de tronco común del plan.
+
+        Retorna (dia, hora_inicio, hora_fin, nombre_materia).
+        Se usa para verificar que una optativa no ocupe el mismo bloque.
+        """
+        return (
+            self._s.query(
+                HorarioModel.dia,
+                HorarioModel.hora_inicio,
+                HorarioModel.hora_fin,
+                DetalleSemestreModel.nombre_posicion.label("nombre_materia"),
+            )
+            .join(PlanGeneradoModel,
+                  PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
+            .join(AsignacionMateriaModel,
+                  AsignacionMateriaModel.id_asignacion == HorarioModel.id_asignacion)
+            .join(DetalleSemestreModel,
+                  DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
+            .filter(
+                PlanGeneradoModel.id_plan == id_plan,
+                AsignacionMateriaModel.id_materia.isnot(None),  # solo tronco
+            )
+            .all()
+        )
+
     def commit(self)   -> None: self._s.commit()
     def rollback(self) -> None: self._s.rollback()

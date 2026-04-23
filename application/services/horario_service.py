@@ -484,3 +484,101 @@ class HorarioService:
         finally:
             session.close()
 
+    # ══════════════════════════════════════════════════════════
+    # Validaciones de tronco común entre LIES
+    # ══════════════════════════════════════════════════════════
+
+    def obtener_horario_tronco_existente(
+        self,
+        id_plan: int,
+        id_asignacion: int,
+        excluir_id_asignacion: int | None = None,
+    ) -> list[dict] | None:
+        """Si la asignación es de tronco común, busca horarios ya registrados
+        para la misma materia (id_materia) en cualquier LIES del plan.
+
+        Retorna lista de dicts {dia, hora_inicio, hora_fin, lies_nombre}
+        o None si no es tronco o no hay horarios previos.
+        """
+        session = self._db.get_session()
+        try:
+            repo = HorarioRepository(session)
+            id_materia = repo.obtener_id_materia_de_asignacion(id_asignacion)
+            if id_materia is None:
+                return None  # es optativa, no aplica
+
+            rows = repo.obtener_horario_tronco_existente(
+                id_plan, id_materia, excluir_id_asignacion)
+            if not rows:
+                return None
+
+            return [
+                {
+                    "dia": r.dia,
+                    "hora_inicio": r.hora_inicio.strftime("%H:%M")
+                        if hasattr(r.hora_inicio, "strftime") else str(r.hora_inicio),
+                    "hora_fin": r.hora_fin.strftime("%H:%M")
+                        if hasattr(r.hora_fin, "strftime") else str(r.hora_fin),
+                    "lies_nombre": r.lies_nombre,
+                }
+                for r in rows
+            ]
+        finally:
+            session.close()
+
+    def validar_horario_optativa_vs_tronco(
+        self,
+        id_plan: int,
+        dia: str,
+        hora_inicio: str,
+        hora_fin: str,
+    ) -> str | None:
+        """Verifica que un horario para optativa no colisione con tronco común.
+
+        Retorna un mensaje de error si hay colisión, o None si todo OK.
+        """
+        session = self._db.get_session()
+        try:
+            repo = HorarioRepository(session)
+            rows = repo.obtener_horarios_tronco_del_plan(id_plan)
+            hi_new = datetime.strptime(hora_inicio, "%H:%M").time()
+            hf_new = datetime.strptime(hora_fin, "%H:%M").time()
+
+            for r in rows:
+                if r.dia != dia:
+                    continue
+                # Verificar solapamiento
+                hi_ex = r.hora_inicio if isinstance(r.hora_inicio, dtime) \
+                    else datetime.strptime(str(r.hora_inicio), "%H:%M").time()
+                hf_ex = r.hora_fin if isinstance(r.hora_fin, dtime) \
+                    else datetime.strptime(str(r.hora_fin), "%H:%M").time()
+                if hi_new < hf_ex and hf_new > hi_ex:
+                    return (
+                        f"El horario {dia} {hora_inicio}–{hora_fin} "
+                        f"colisiona con la materia de tronco común "
+                        f"«{r.nombre_materia}» ({dia} "
+                        f"{hi_ex.strftime('%H:%M')}–{hf_ex.strftime('%H:%M')}).\n"
+                        f"Las optativas no pueden compartir horario "
+                        f"con materias de tronco común."
+                    )
+            return None
+        finally:
+            session.close()
+
+    def es_asignacion_tronco(self, id_asignacion: int) -> bool:
+        """Retorna True si la asignación es de tronco común (tiene id_materia)."""
+        session = self._db.get_session()
+        try:
+            repo = HorarioRepository(session)
+            return repo.obtener_id_materia_de_asignacion(id_asignacion) is not None
+        finally:
+            session.close()
+
+    def obtener_id_materia(self, id_asignacion: int) -> int | None:
+        """Retorna el id_materia (tronco) de una asignación, o None si es optativa."""
+        session = self._db.get_session()
+        try:
+            return HorarioRepository(session).obtener_id_materia_de_asignacion(
+                id_asignacion)
+        finally:
+            session.close()

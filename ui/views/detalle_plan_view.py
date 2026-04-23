@@ -409,9 +409,13 @@ class DetallePlanView(ft.Column):
         # ── Estado de edición ─────────────────────────────────
         self._editando_id: int | None = None   # id_horario en edición
 
+        # ── Caché en memoria de horas de tronco común (por sesión) ──
+        # Clave: id_materia, Valor: {"hora_inicio": str, "hora_fin": str}
+        # Se resetea cada vez que se crea la vista (nueva sesión).
+        self._tronco_horas: dict[int, dict] = {}
+
         # ── FilePicker para guardar PDF ────────────────────────
         self._save_picker = ft.FilePicker(on_result=self._on_save_result)
-        page.overlay.append(self._save_picker)
 
         # ── Datos iniciales ───────────────────────────────────
         nombre_plan     = service.obtener_nombre_plan(id_plan)
@@ -829,7 +833,11 @@ class DetallePlanView(ft.Column):
     # ── Ciclo de vida ─────────────────────────────────────────
 
     def did_mount(self) -> None:
-        self._recargar_tabla()
+        # Agregar FilePicker al overlay (sin duplicar)
+        if self._save_picker not in self._page.overlay:
+            self._page.overlay.append(self._save_picker)
+            self._page.update()
+        # Tabla empieza vacía — no se carga historial anterior
 
     # ── Builders de opciones ──────────────────────────────────
 
@@ -1046,6 +1054,10 @@ class DetallePlanView(ft.Column):
         if periodo_dto is None:
             self._msg("Error al registrar el periodo."); return
 
+        # ── Determinar tipo de materia (tronco o optativa) ────
+        id_materia = self._service.obtener_id_materia(int(id_asig))
+        es_tronco = id_materia is not None
+
         alguno_ok = False
         for fila in self._filas_horario:
             dia = (fila.dd_dia.value or "").strip()
@@ -1060,6 +1072,34 @@ class DetallePlanView(ft.Column):
             except ValueError:
                 self._msg(f"Formato inválido: {hi} – {hf}"); return
 
+            # ── Validación en memoria: tronco común entre LIES ──
+            if es_tronco:
+                if id_materia in self._tronco_horas:
+                    ref = self._tronco_horas[id_materia]
+                    if ref["hora_inicio"] != hi or ref["hora_fin"] != hf:
+                        self._msg(
+                            f"Esta materia de tronco común ya tiene hora "
+                            f"asignada: {ref['hora_inicio']}–{ref['hora_fin']}.\n"
+                            f"Debes seleccionar la misma hora."
+                        )
+                        return
+            else:
+                # ── Validación en memoria: optativa vs tronco ──
+                hi_new = datetime.strptime(hi, "%H:%M")
+                hf_new = datetime.strptime(hf, "%H:%M")
+                for _, th in self._tronco_horas.items():
+                    hi_ex = datetime.strptime(th["hora_inicio"], "%H:%M")
+                    hf_ex = datetime.strptime(th["hora_fin"], "%H:%M")
+                    if hi_new < hf_ex and hf_new > hi_ex:
+                        self._msg(
+                            f"El horario {hi}–{hf} colisiona con una "
+                            f"materia de tronco común "
+                            f"({th['hora_inicio']}–{th['hora_fin']}).\n"
+                            f"Las optativas no pueden compartir hora "
+                            f"con materias de tronco común."
+                        )
+                        return
+
             ok, msg = self._service.guardar_horario(GuardarHorarioDTO(
                 id_asignacion=int(id_asig),
                 id_docente=int(id_doc),
@@ -1071,6 +1111,12 @@ class DetallePlanView(ft.Column):
             if not ok:
                 self._msg(msg); return
             alguno_ok = True
+
+            # ── Registrar hora de tronco en caché de sesión ──
+            if es_tronco and id_materia not in self._tronco_horas:
+                self._tronco_horas[id_materia] = {
+                    "hora_inicio": hi, "hora_fin": hf,
+                }
 
         if not alguno_ok:
             self._msg("Completa al menos un horario (día + horas)."); return
@@ -1224,6 +1270,36 @@ class DetallePlanView(ft.Column):
         except ValueError:
             self._msg(f"Formato inválido: {hi} – {hf}"); return
 
+        # ── Validación en memoria: tronco común entre LIES ────
+        id_materia = self._service.obtener_id_materia(int(id_asig))
+        es_tronco = id_materia is not None
+        if es_tronco:
+            if id_materia in self._tronco_horas:
+                ref = self._tronco_horas[id_materia]
+                if ref["hora_inicio"] != hi or ref["hora_fin"] != hf:
+                    self._msg(
+                        f"Esta materia de tronco común ya tiene hora "
+                        f"asignada: {ref['hora_inicio']}–{ref['hora_fin']}.\n"
+                        f"Debes seleccionar la misma hora."
+                    )
+                    return
+        else:
+            # ── Validación en memoria: optativa vs tronco ────
+            hi_new = datetime.strptime(hi, "%H:%M")
+            hf_new = datetime.strptime(hf, "%H:%M")
+            for _, th in self._tronco_horas.items():
+                hi_ex = datetime.strptime(th["hora_inicio"], "%H:%M")
+                hf_ex = datetime.strptime(th["hora_fin"], "%H:%M")
+                if hi_new < hf_ex and hf_new > hi_ex:
+                    self._msg(
+                        f"El horario {hi}–{hf} colisiona con una "
+                        f"materia de tronco común "
+                        f"({th['hora_inicio']}–{th['hora_fin']}).\n"
+                        f"Las optativas no pueden compartir hora "
+                        f"con materias de tronco común."
+                    )
+                    return
+
         ok, msg = self._service.actualizar_horario(
             id_horario=self._editando_id,
             dto=GuardarHorarioDTO(
@@ -1237,6 +1313,12 @@ class DetallePlanView(ft.Column):
         )
         if not ok:
             self._msg(msg); return
+
+        # Registrar hora de tronco en caché de sesión
+        if es_tronco and id_materia not in self._tronco_horas:
+            self._tronco_horas[id_materia] = {
+                "hora_inicio": hi, "hora_fin": hf,
+            }
 
         self._msg("¡Horario actualizado correctamente!")
         self._cancelar_edicion()
@@ -1449,6 +1531,11 @@ class DetallePlanView(ft.Column):
         self._actualizar_total(None)
         self._btn_accion.text = "+ Agregar"
         self._btn_cancelar.visible = False
+        # Limpiar tabla
+        self._tabla.rows = []
+        # Remover FilePicker del overlay para no acumular
+        if self._save_picker in self._page.overlay:
+            self._page.overlay.remove(self._save_picker)
         if self._on_volver:
             self._on_volver()
 

@@ -10,8 +10,8 @@ from ui.navigation.navegador import Navegador
 def main(page: ft.Page) -> None:
     # ── Configuración de la ventana ───────────────────────────
     page.title         = "Sistema de Horarios"
-    page.window.width  = 1060
-    page.window.height = 780
+    page.window.width  = 1920
+    page.window.height = 1080
     page.padding       = 0
     page.bgcolor       = Colores.BLANCO
 

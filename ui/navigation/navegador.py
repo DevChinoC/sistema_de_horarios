@@ -70,6 +70,8 @@ class Navegador:
                 break
 
         self._page.controls.clear()
+        # Limpiar FilePickers residuales del overlay
+        self._page.overlay.clear()
         vista = DetallePlanView(
             page=self._page,
             id_plan=plan.id,
@@ -88,6 +90,8 @@ class Navegador:
                 break
 
         self._page.controls.clear()
+        # Limpiar FilePickers residuales del overlay
+        self._page.overlay.clear()
         vista = DetallePlanView(
             page=self._page,
             id_plan=id_plan,

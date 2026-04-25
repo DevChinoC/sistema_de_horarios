@@ -35,12 +35,15 @@ class CrearPlanView(ft.Column):
         lies_activa: dict,
         on_guardado: Callable | None = None,
         on_cancelado: Callable | None = None,
+        on_membrete_seleccionado: Callable | None = None,
     ) -> None:
         self._page         = page
         self._service      = service
         self._lies_activa  = lies_activa
         self._on_guardado  = on_guardado
         self._on_cancelado = on_cancelado
+        self._on_membrete_seleccionado = on_membrete_seleccionado
+        self._ruta_membrete: str | None = None
 
         # ── Datos de la BD ────────────────────────────────────
         tipos   = self._service.obtener_tipos_materia()
@@ -87,6 +90,47 @@ class CrearPlanView(ft.Column):
         self._tabla = TablaMaterias(tipos=tipos)
         self._tabla.agregar_fila(nombre="", id_tipo=0, semestre=0)
 
+        # ── Selector de membrete ─────────────────────────────────
+        self._lbl_membrete = ft.Text(
+            "Sin membrete cargado", size=12,
+            color=Colores.TEXTO_MUTED, font_family=Fuentes.CAMPOS,
+            italic=True,
+        )
+        self._file_picker = ft.FilePicker(
+            on_result=self._on_membrete_resultado)
+        page.overlay.append(self._file_picker)
+
+        btn_membrete = ft.ElevatedButton(
+            text="Seleccionar membrete",
+            icon=ft.Icons.IMAGE_OUTLINED,
+            bgcolor=Colores.AZUL_PRIMARIO,
+            color=Colores.BLANCO,
+            elevation=0,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=6),
+                padding=ft.padding.symmetric(horizontal=16, vertical=10),
+                text_style=ft.TextStyle(size=12, font_family=Fuentes.CAMPOS),
+            ),
+            on_click=lambda _: self._file_picker.pick_files(
+                dialog_title="Seleccionar imagen de membrete",
+                allowed_extensions=["png", "jpg", "jpeg"],
+                allow_multiple=False,
+            ),
+        )
+
+        bloque_membrete = ft.Column(
+            controls=[
+                ft.Text("Membrete:", size=13, weight=ft.FontWeight.W_600,
+                        color=Colores.TEXTO, font_family=Fuentes.CAMPOS),
+                ft.Row(
+                    controls=[btn_membrete, self._lbl_membrete],
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=6,
+        )
+
         # ════════════════════ LAYOUT ═════════════════════════
 
         # 1) Header fijo
@@ -129,6 +173,8 @@ class CrearPlanView(ft.Column):
                         spacing=20,
                         vertical_alignment=ft.CrossAxisAlignment.END,
                     ),
+                    ft.Container(height=12),
+                    bloque_membrete,
                     ft.Container(height=8),
                     self._tabla,
                 ],
@@ -218,6 +264,10 @@ class CrearPlanView(ft.Column):
             self._mostrar_mensaje("Agrega al menos una materia completa.")
             return
 
+        if self._ruta_membrete is None:
+            self._mostrar_mensaje("Selecciona un membrete antes de guardar.")
+            return
+
         all_lies_ids = [l["id"] for l in self._todas_lies]
 
         dto = CrearPlanDTO(
@@ -228,6 +278,7 @@ class CrearPlanView(ft.Column):
                 FilaMateriaDTO(f["nombre_materia"], f["id_tipo"], f["numero_semestre"])
                 for f in filas
             ],
+            ruta_membrete=self._ruta_membrete,
         )
         exito, msg = self._service.crear_plan(dto)
         if exito:
@@ -273,6 +324,25 @@ class CrearPlanView(ft.Column):
                 self._on_guardado()
 
         threading.Thread(target=_quitar_y_navegar, daemon=True).start()
+
+    def _on_membrete_resultado(self, e: ft.FilePickerResultEvent) -> None:
+        """Callback del FilePicker de membrete."""
+        if e.files:
+            self._ruta_membrete = e.files[0].path
+            nombre = e.files[0].name
+            self._lbl_membrete.value = nombre
+            self._lbl_membrete.color = Colores.TEXTO
+            self._lbl_membrete.italic = False
+        else:
+            self._ruta_membrete = None
+            self._lbl_membrete.value = "Sin membrete cargado"
+            self._lbl_membrete.color = Colores.TEXTO_MUTED
+            self._lbl_membrete.italic = True
+        if self.page:
+            self._lbl_membrete.update()
+        # Notificar al Navegador
+        if self._on_membrete_seleccionado:
+            self._on_membrete_seleccionado(self._ruta_membrete)
 
     def _mostrar_mensaje(self, texto: str) -> None:
         self._page.open(ft.SnackBar(content=ft.Text(texto)))

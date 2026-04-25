@@ -29,8 +29,20 @@ class Navegador:
         self._planes_svc     = planes_service
         self._plan_svc       = plan_service
         self._horario_svc    = horario_service
+        self._ruta_membrete: str | None = None
+
+    # ── Membrete global ───────────────────────────────────────
+
+    @property
+    def ruta_membrete(self) -> str | None:
+        return self._ruta_membrete
+
+    @ruta_membrete.setter
+    def ruta_membrete(self, valor: str | None) -> None:
+        self._ruta_membrete = valor
 
     # ── Métodos de navegación ─────────────────────────────────
+
 
     def ir_a_planes(self) -> None:
         """Vista principal: selección de grado y plan de estudios."""
@@ -43,6 +55,7 @@ class Navegador:
             on_abrir_plan=self.ir_a_detalle_plan,
             horario_service=self._horario_svc,
             on_abrir_plan_por_id=self.ir_a_detalle_plan_por_id,
+            get_ruta_membrete=lambda: self._ruta_membrete,
         )
         self._page.add(vista)
 
@@ -57,18 +70,16 @@ class Navegador:
             lies_activa=lies_activa,
             on_guardado=self.ir_a_planes,
             on_cancelado=self.ir_a_planes,
+            on_membrete_seleccionado=self._set_membrete,
         )
         self._page.add(vista)
 
+    def _set_membrete(self, ruta: str | None) -> None:
+        """Callback invocado por CrearPlanView al seleccionar membrete."""
+        self._ruta_membrete = ruta
+
     def ir_a_detalle_plan(self, plan: PlanDTO) -> None:
         """Vista de detalle y asignación de horarios de un plan."""
-        # Leer membrete desde el panel de planes (si está cargado)
-        ruta_membrete = None
-        for ctrl in self._page.controls:
-            if hasattr(ctrl, "_panel_planes"):
-                ruta_membrete = ctrl._panel_planes.ruta_membrete
-                break
-
         self._page.controls.clear()
         # Limpiar FilePickers residuales del overlay
         self._page.overlay.clear()
@@ -77,18 +88,12 @@ class Navegador:
             id_plan=plan.id,
             service=self._horario_svc,
             on_volver=self.ir_a_planes,
-            ruta_membrete=ruta_membrete,
+            ruta_membrete=self._ruta_membrete,
         )
         self._page.add(vista)
 
     def ir_a_detalle_plan_por_id(self, id_plan: int) -> None:
         """Navega a DetallePlanView usando directamente un id_plan (desde historial)."""
-        ruta_membrete = None
-        for ctrl in self._page.controls:
-            if hasattr(ctrl, "_panel_planes"):
-                ruta_membrete = ctrl._panel_planes.ruta_membrete
-                break
-
         self._page.controls.clear()
         # Limpiar FilePickers residuales del overlay
         self._page.overlay.clear()
@@ -97,6 +102,7 @@ class Navegador:
             id_plan=id_plan,
             service=self._horario_svc,
             on_volver=self.ir_a_planes,
-            ruta_membrete=ruta_membrete,
+            ruta_membrete=self._ruta_membrete,
         )
         self._page.add(vista)
+

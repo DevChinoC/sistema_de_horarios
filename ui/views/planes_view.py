@@ -124,7 +124,6 @@ class PanelPlanesEstudios(ft.Container):
         self._service       = service
         self._on_abrir_plan = on_abrir_plan
         self._plan_actual: PlanDTO | None = None
-        self._ruta_membrete: str | None = None
 
         # ── Dropdown Grado ────────────────────────────────────
         self._dd_grado = ft.Dropdown(
@@ -163,33 +162,7 @@ class PanelPlanesEstudios(ft.Container):
             on_change=self._on_plan_cambiado,
         )
 
-        # ── Selector de membrete ──────────────────────────────
-        self._lbl_membrete = ft.Text(
-            "Sin membrete cargado", size=12,
-            color=Colores.TEXTO_MUTED, font_family=Fuentes.CAMPOS,
-            italic=True,
-        )
-        self._file_picker = ft.FilePicker(
-            on_result=self._on_membrete_seleccionado)
-        page.overlay.append(self._file_picker)
 
-        btn_membrete = ft.ElevatedButton(
-            text="Seleccionar membrete",
-            icon=ft.Icons.IMAGE_OUTLINED,
-            bgcolor=Colores.AZUL_PRIMARIO,
-            color=Colores.BLANCO,
-            elevation=0,
-            style=ft.ButtonStyle(
-                shape=ft.RoundedRectangleBorder(radius=6),
-                padding=ft.padding.symmetric(horizontal=16, vertical=10),
-                text_style=ft.TextStyle(size=12, font_family=Fuentes.CAMPOS),
-            ),
-            on_click=lambda _: self._file_picker.pick_files(
-                dialog_title="Seleccionar imagen de membrete",
-                allowed_extensions=["png", "jpg", "jpeg"],
-                allow_multiple=False,
-            ),
-        )
 
         # ── Puerta animada ────────────────────────────────────
         self._puerta = PuertaAnimada(on_abrir=self._abrir_plan)
@@ -216,18 +189,6 @@ class PanelPlanesEstudios(ft.Container):
             spacing=10,
         )
 
-        fila_membrete = ft.Column(
-            controls=[
-                ft.Text("Membrete:", size=13, weight=ft.FontWeight.W_600,
-                        color=Colores.TEXTO, font_family=Fuentes.CAMPOS),
-                ft.Row(
-                    controls=[btn_membrete, self._lbl_membrete],
-                    spacing=10,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-            ],
-            spacing=6,
-        )
 
         contenido = ft.Column(
             controls=[
@@ -235,8 +196,7 @@ class PanelPlanesEstudios(ft.Container):
                 fila_grado,
                 ft.Container(height=10),
                 fila_plan,
-                ft.Container(height=16),
-                fila_membrete,
+                ft.Container(height=20),
                 ft.Container(height=20),
 
                 ft.Container(
@@ -309,35 +269,9 @@ class PanelPlanesEstudios(ft.Container):
 
     # ── Apertura de puerta ────────────────────────────────────
 
-    @property
-    def ruta_membrete(self) -> str | None:
-        return self._ruta_membrete
-
-    def _on_membrete_seleccionado(self, e: ft.FilePickerResultEvent) -> None:
-        if e.files:
-            self._ruta_membrete = e.files[0].path
-            nombre = e.files[0].name
-            self._lbl_membrete.value = nombre
-            self._lbl_membrete.color = Colores.TEXTO
-            self._lbl_membrete.italic = False
-        else:
-            self._ruta_membrete = None
-            self._lbl_membrete.value = "Sin membrete cargado"
-            self._lbl_membrete.color = Colores.TEXTO_MUTED
-            self._lbl_membrete.italic = True
-        if self.page:
-            self._lbl_membrete.update()
-
     def _abrir_plan(self) -> None:
         """Se llama cuando la animación de la puerta termina."""
         if self._plan_actual is None:
-            self._puerta.resetear()
-            return
-        # Verificar que el membrete haya sido cargado
-        if self._ruta_membrete is None:
-            if self.page:
-                self.page.open(ft.SnackBar(
-                    content=ft.Text("Selecciona un membrete antes de continuar.")))
             self._puerta.resetear()
             return
         self._on_abrir_plan(self._plan_actual)
@@ -380,6 +314,7 @@ class PlanesView(ft.Column):
         on_abrir_plan: Callable[[PlanDTO], None],
         horario_service: HorarioService | None = None,
         on_abrir_plan_por_id: Callable[[int], None] | None = None,
+        get_ruta_membrete: Callable[[], str | None] | None = None,
     ) -> None:
         self._page              = page
         self._service           = service
@@ -387,6 +322,7 @@ class PlanesView(ft.Column):
         self._on_abrir_plan     = on_abrir_plan
         self._horario_svc       = horario_service
         self._on_abrir_plan_por_id = on_abrir_plan_por_id
+        self._get_ruta_membrete = get_ruta_membrete
 
         # ── Cabecera ──────────────────────────────────────────
         self._cabecera = CabeceraApp(on_cerrar=on_cerrar)
@@ -463,7 +399,7 @@ class PlanesView(ft.Column):
             if self.page:
                 self._area_contenido.update()
         elif tab == "Horario por docente":
-            ruta_membrete = self._panel_planes.ruta_membrete
+            ruta_membrete = self._get_ruta_membrete() if self._get_ruta_membrete else None
             vista_docente = HorarioDocenteView(
                 page=self._page,
                 service=self._horario_svc or HorarioService(),
@@ -479,7 +415,7 @@ class PlanesView(ft.Column):
             if self.page:
                 self._area_contenido.update()
         elif tab == "Historial":
-            ruta_membrete = self._panel_planes.ruta_membrete
+            ruta_membrete = self._get_ruta_membrete() if self._get_ruta_membrete else None
             vista_historial = HistorialView(
                 page=self._page,
                 service=self._horario_svc or HorarioService(),

@@ -148,10 +148,21 @@ class _Cabecera(ft.Container):
 
 
 # ─────────────────────────────────────────────────────────────
-# Picker de hora con scroll (rueda del mouse)
+# Picker de hora con scroll, touchpad, teclado (↑ / ↓) y botones
 # ─────────────────────────────────────────────────────────────
-class _ScrollColumn(ft.GestureDetector):
-    """Columna de valor que cambia con scroll del mouse."""
+class _ScrollColumn(ft.Container):
+    """Columna de valor con botones ▲/▼, scroll del mouse,
+    arrastre vertical (touchpad) y teclas ↑ / ↓ del teclado.
+
+    Al hacer clic se enfoca el control (borde azul); las flechas
+    del teclado cambian el valor.  Solo una instancia puede estar
+    enfocada a la vez.
+
+    Se usa ft.Container como base (no ft.Column) para evitar
+    problemas de layout cuando se inserta dentro de ft.Row.
+    """
+
+    _focused_instance: "_ScrollColumn | None" = None  # instancia enfocada
 
     def __init__(
         self,
@@ -160,16 +171,17 @@ class _ScrollColumn(ft.GestureDetector):
         width: int = 36,
         on_change: Callable | None = None,
     ) -> None:
-        self._items    = items
-        self._selected = initial
+        self._items     = items
+        self._selected  = initial
         self._on_change = on_change
+        self._drag_accum = 0.0  # acumulador para touchpad
 
         self._txt = ft.Text(
             items[initial], size=14, weight=ft.FontWeight.W_700,
             color=_NEGRO, font_family=Fuentes.CAMPOS,
             text_align=ft.TextAlign.CENTER,
         )
-        box = ft.Container(
+        self._box = ft.Container(
             content=self._txt,
             width=width, height=30,
             alignment=ft.alignment.center,
@@ -177,10 +189,103 @@ class _ScrollColumn(ft.GestureDetector):
             border_radius=4,
             bgcolor=Colores.BLANCO,
         )
-        super().__init__(content=box, on_scroll=self._on_scroll)
+
+        # Botón ▲
+        btn_up = ft.Container(
+            content=ft.Icon(ft.Icons.ARROW_DROP_UP,
+                            size=18, color=Colores.TEXTO_MUTED),
+            on_click=lambda _: self._move(-1),
+            width=width, height=16,
+            alignment=ft.alignment.center,
+            ink=True,
+        )
+        # Botón ▼
+        btn_down = ft.Container(
+            content=ft.Icon(ft.Icons.ARROW_DROP_DOWN,
+                            size=18, color=Colores.TEXTO_MUTED),
+            on_click=lambda _: self._move(1),
+            width=width, height=16,
+            alignment=ft.alignment.center,
+            ink=True,
+        )
+
+        # GestureDetector envuelve la caja para scroll + touchpad + clic
+        self._gesture = ft.GestureDetector(
+            content=self._box,
+            on_scroll=self._on_scroll,
+            on_tap=self._on_tap,
+            on_vertical_drag_update=self._on_drag,
+        )
+
+        # Columna interna con altura fija para evitar layout unbounded
+        inner = ft.Column(
+            controls=[btn_up, self._gesture, btn_down],
+            spacing=0,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+        super().__init__(
+            content=inner,
+            width=width,
+            height=62,  # 16 + 30 + 16
+        )
+
+    # ── Ciclo de vida ──────────────────────────────────────
+
+    def did_mount(self) -> None:
+        """Registrar handler de teclado global (siempre re-registra)."""
+        if self.page:
+            self.page.on_keyboard_event = _ScrollColumn._global_on_key
+
+    def will_unmount(self) -> None:
+        """Limpiar referencia si esta instancia estaba enfocada."""
+        if _ScrollColumn._focused_instance is self:
+            _ScrollColumn._focused_instance = None
+
+    # ── Interacción: scroll (rueda del mouse) ──────────────
 
     def _on_scroll(self, e: ft.ScrollEvent) -> None:
         self._move(-1 if e.scroll_delta_y < 0 else 1)
+
+    # ── Interacción: arrastre vertical (touchpad) ──────────
+
+    def _on_drag(self, e) -> None:
+        self._drag_accum += e.delta_y
+        threshold = 20  # píxeles antes de cambiar valor
+        if abs(self._drag_accum) >= threshold:
+            direction = 1 if self._drag_accum > 0 else -1
+            self._move(direction)
+            self._drag_accum = 0.0
+
+    # ── Interacción: clic para enfocar ─────────────────────
+
+    def _on_tap(self, _) -> None:
+        prev = _ScrollColumn._focused_instance
+        if prev is not None and prev is not self:
+            prev._lose_focus()
+        _ScrollColumn._focused_instance = self
+        self._box.border = ft.border.all(2, Colores.AZUL_PRIMARIO)
+        if self.page:
+            self._box.update()
+
+    def _lose_focus(self) -> None:
+        self._box.border = ft.border.all(1, Colores.BORDE)
+        if self.page:
+            self._box.update()
+
+    # ── Interacción: teclado (↑ / ↓) ──────────────────────
+
+    @staticmethod
+    def _global_on_key(e: ft.KeyboardEvent) -> None:
+        inst = _ScrollColumn._focused_instance
+        if inst is None:
+            return
+        if e.key == "Arrow Up":
+            inst._move(-1)
+        elif e.key == "Arrow Down":
+            inst._move(1)
+
+    # ── Lógica compartida ─────────────────────────────────
 
     def _move(self, direction: int) -> None:
         self._select((self._selected + direction) % len(self._items))
@@ -404,15 +509,16 @@ class DetallePlanView(ft.Column):
         self._id_plan       = id_plan
         self._service       = service
         self._on_volver     = on_volver
-        self._ruta_membrete = ruta_membrete
+        # Cargar membrete desde la BD (prioritario) o parámetro de respaldo
+        self._ruta_membrete = service.obtener_ruta_membrete(id_plan) or ruta_membrete
 
         # ── Estado de edición ─────────────────────────────────
         self._editando_id: int | None = None   # id_horario en edición
 
         # ── Caché en memoria de horas de tronco común (por sesión) ──
-        # Clave: id_materia, Valor: {"hora_inicio": str, "hora_fin": str}
+        # Estructura: {id_semestre: {id_materia: [{"dia", "hora_inicio", "hora_fin"}, ...]}}
         # Se resetea cada vez que se crea la vista (nueva sesión).
-        self._tronco_horas: dict[int, dict] = {}
+        self._tronco_horas: dict[int, dict[int, list[dict]]] = {}
 
         # ── FilePicker para guardar PDF ────────────────────────
         self._save_picker = ft.FilePicker(on_result=self._on_save_result)
@@ -565,6 +671,7 @@ class DetallePlanView(ft.Column):
             options=[], disabled=True,
             on_change=self._on_unidad_cambiada,
             suffix=self._btn_buscar_unidad,
+            max_menu_height=150,
             **_dd_kw(_W_UA),
         )
         self._tf_buscar_unidad = ft.TextField(
@@ -861,6 +968,10 @@ class DetallePlanView(ft.Column):
                                  else Colores.AZUL_PRIMARIO)
             if self.page:
                 btn.update()
+        # Limpiar tabla al cambiar de LIES
+        self._tabla.rows = []
+        if self.page:
+            self._tabla.update()
         if self._dd_semestre.value:
             self._on_semestre_cambiado(None)
 
@@ -899,9 +1010,13 @@ class DetallePlanView(ft.Column):
                 self._tf_buscar_unidad.update()
                 self._dd_unidad.update()
 
+        # Limpiar tabla al cambiar de semestre
+        self._tabla.rows = []
+
         if self.page:
             self._dd_unidad.update()
             self._tipo_txt.update()
+            self._tabla.update()
 
     # ── Unidad → auto tipo (texto plano, solo lectura) ────────
 
@@ -1028,10 +1143,107 @@ class DetallePlanView(ft.Column):
     # ── Botón de acción (Agregar / Guardar) ────────────────────
 
     def _on_btn_accion(self, _) -> None:
-        if self._editando_id is not None:
-            self._guardar_edicion()
+        try:
+            if self._editando_id is not None:
+                self._guardar_edicion()
+            else:
+                self._agregar()
+        except Exception as ex:
+            self._msg(f"Error inesperado: {ex}")
+
+    # ── Helper: validar tronco común (por semestre) ────────────
+
+    def _validar_tronco(
+        self,
+        es_tronco: bool,
+        id_materia: int | None,
+        id_sem: int | None,
+        filas: list[dict],
+    ) -> str | None:
+        """Valida reglas de tronco común.  Retorna mensaje de error o None.
+
+        Reglas:
+        1. Misma materia de tronco en otra LIES → mismos días y horas.
+        2. Diferente materia de tronco → no puede usar el mismo rango horario.
+        3. Optativa → no puede usar rango horario de tronco.
+        4. Todo es por semestre; otro semestre no afecta.
+        """
+        if id_sem is None:
+            return None
+        sem_cache = self._tronco_horas.get(id_sem, {})
+
+        if es_tronco and id_materia is not None:
+            # ── Regla 1: misma materia → mismos días + horas ──
+            if id_materia in sem_cache:
+                existing = sem_cache[id_materia]
+                ex_set = {
+                    (h["dia"], h["hora_inicio"], h["hora_fin"])
+                    for h in existing
+                }
+                new_set = {
+                    (f["dia"], f["hora_inicio"], f["hora_fin"])
+                    for f in filas
+                }
+                if ex_set != new_set:
+                    dias_ex = ", ".join(sorted({h["dia"] for h in existing}))
+                    h0 = existing[0]
+                    return (
+                        f"Esta materia de tronco común ya tiene horario "
+                        f"asignado: {dias_ex} "
+                        f"{h0['hora_inicio']}–{h0['hora_fin']}.\n"
+                        f"Debes usar el mismo horario en todas las LIES."
+                    )
+
+            # ── Regla 2: otra materia de tronco → sin solapamiento ──
+            for mat_id, mat_hrs in sem_cache.items():
+                if mat_id == id_materia:
+                    continue
+                for h_ex in mat_hrs:
+                    hi_ex = datetime.strptime(h_ex["hora_inicio"], "%H:%M")
+                    hf_ex = datetime.strptime(h_ex["hora_fin"], "%H:%M")
+                    for f in filas:
+                        hi_n = datetime.strptime(f["hora_inicio"], "%H:%M")
+                        hf_n = datetime.strptime(f["hora_fin"], "%H:%M")
+                        if hi_n < hf_ex and hf_n > hi_ex:
+                            return (
+                                f"El rango {f['hora_inicio']}–{f['hora_fin']} "
+                                f"colisiona con otra materia de tronco común "
+                                f"({h_ex['hora_inicio']}–{h_ex['hora_fin']}).\n"
+                                f"Las materias de tronco no pueden compartir "
+                                f"rango horario en el mismo semestre."
+                            )
         else:
-            self._agregar()
+            # ── Regla 3: optativa vs tronco → sin solapamiento ──
+            for _mat_id, mat_hrs in sem_cache.items():
+                for h_ex in mat_hrs:
+                    hi_ex = datetime.strptime(h_ex["hora_inicio"], "%H:%M")
+                    hf_ex = datetime.strptime(h_ex["hora_fin"], "%H:%M")
+                    for f in filas:
+                        hi_n = datetime.strptime(f["hora_inicio"], "%H:%M")
+                        hf_n = datetime.strptime(f["hora_fin"], "%H:%M")
+                        if hi_n < hf_ex and hf_n > hi_ex:
+                            return (
+                                f"El horario {f['hora_inicio']}–{f['hora_fin']} "
+                                f"colisiona con una materia de tronco común "
+                                f"({h_ex['hora_inicio']}–{h_ex['hora_fin']}).\n"
+                                f"Las optativas no pueden compartir rango "
+                                f"horario con materias de tronco común."
+                            )
+        return None
+
+    def _registrar_tronco_cache(
+        self, id_sem: int, id_materia: int, filas: list[dict],
+    ) -> None:
+        """Agrega las horas al caché de tronco (si la materia aún no existe)."""
+        if id_sem not in self._tronco_horas:
+            self._tronco_horas[id_sem] = {}
+        if id_materia not in self._tronco_horas[id_sem]:
+            self._tronco_horas[id_sem][id_materia] = [
+                {"dia": f["dia"],
+                 "hora_inicio": f["hora_inicio"],
+                 "hora_fin": f["hora_fin"]}
+                for f in filas
+            ]
 
     # ── Guardar horario (nuevo) ───────────────────────────────
 
@@ -1054,72 +1266,56 @@ class DetallePlanView(ft.Column):
         if periodo_dto is None:
             self._msg("Error al registrar el periodo."); return
 
-        # ── Determinar tipo de materia (tronco o optativa) ────
+        # ── Tipo de materia y semestre ─────────────────────────
         id_materia = self._service.obtener_id_materia(int(id_asig))
-        es_tronco = id_materia is not None
+        es_tronco  = id_materia is not None
+        id_sem     = int(self._dd_semestre.value) if self._dd_semestre.value else None
 
-        alguno_ok = False
+        # ── Recopilar filas válidas ────────────────────────────
+        filas_validas: list[dict] = []
         for fila in self._filas_horario:
             dia = (fila.dd_dia.value or "").strip()
-            hi  = fila.hora_inicio.get_24h()
-            hf  = fila.hora_fin.get_24h()
             if not dia:
                 continue
+            hi = fila.hora_inicio.get_24h()
+            hf = fila.hora_fin.get_24h()
             try:
-                t0    = datetime.strptime(hi, "%H:%M")
-                t1    = datetime.strptime(hf, "%H:%M")
+                t0 = datetime.strptime(hi, "%H:%M")
+                t1 = datetime.strptime(hf, "%H:%M")
                 delta = max(0, (t1 - t0).seconds) // 3600
             except ValueError:
                 self._msg(f"Formato inválido: {hi} – {hf}"); return
+            filas_validas.append({
+                "dia": dia, "hora_inicio": hi, "hora_fin": hf,
+                "delta": delta,
+            })
 
-            # ── Validación en memoria: tronco común entre LIES ──
-            if es_tronco:
-                if id_materia in self._tronco_horas:
-                    ref = self._tronco_horas[id_materia]
-                    if ref["hora_inicio"] != hi or ref["hora_fin"] != hf:
-                        self._msg(
-                            f"Esta materia de tronco común ya tiene hora "
-                            f"asignada: {ref['hora_inicio']}–{ref['hora_fin']}.\n"
-                            f"Debes seleccionar la misma hora."
-                        )
-                        return
-            else:
-                # ── Validación en memoria: optativa vs tronco ──
-                hi_new = datetime.strptime(hi, "%H:%M")
-                hf_new = datetime.strptime(hf, "%H:%M")
-                for _, th in self._tronco_horas.items():
-                    hi_ex = datetime.strptime(th["hora_inicio"], "%H:%M")
-                    hf_ex = datetime.strptime(th["hora_fin"], "%H:%M")
-                    if hi_new < hf_ex and hf_new > hi_ex:
-                        self._msg(
-                            f"El horario {hi}–{hf} colisiona con una "
-                            f"materia de tronco común "
-                            f"({th['hora_inicio']}–{th['hora_fin']}).\n"
-                            f"Las optativas no pueden compartir hora "
-                            f"con materias de tronco común."
-                        )
-                        return
+        if not filas_validas:
+            self._msg("Completa al menos un horario (día + horas)."); return
 
+        # ── Validación de tronco común (por semestre) ──────────
+        error = self._validar_tronco(es_tronco, id_materia, id_sem, filas_validas)
+        if error:
+            self._msg(error); return
+
+        # ── Guardar cada fila ─────────────────────────────────
+        for f in filas_validas:
             ok, msg = self._service.guardar_horario(GuardarHorarioDTO(
                 id_asignacion=int(id_asig),
                 id_docente=int(id_doc),
                 id_aula=int(id_aula),
                 id_periodo=periodo_dto.id,
-                dia=dia, hora_inicio=hi, hora_fin=hf,
-                total_horas=delta, id_plan=self._id_plan,
+                dia=f["dia"], hora_inicio=f["hora_inicio"],
+                hora_fin=f["hora_fin"],
+                total_horas=f["delta"], id_plan=self._id_plan,
             ))
             if not ok:
                 self._msg(msg); return
-            alguno_ok = True
 
-            # ── Registrar hora de tronco en caché de sesión ──
-            if es_tronco and id_materia not in self._tronco_horas:
-                self._tronco_horas[id_materia] = {
-                    "hora_inicio": hi, "hora_fin": hf,
-                }
+        # ── Actualizar caché de tronco ─────────────────────────
+        if es_tronco and id_materia is not None and id_sem is not None:
+            self._registrar_tronco_cache(id_sem, id_materia, filas_validas)
 
-        if not alguno_ok:
-            self._msg("Completa al menos un horario (día + horas)."); return
         self._msg("¡Horario agregado correctamente!")
         self._recargar_tabla()
 
@@ -1270,35 +1466,15 @@ class DetallePlanView(ft.Column):
         except ValueError:
             self._msg(f"Formato inválido: {hi} – {hf}"); return
 
-        # ── Validación en memoria: tronco común entre LIES ────
+        # ── Validación de tronco común (por semestre) ──────────
         id_materia = self._service.obtener_id_materia(int(id_asig))
-        es_tronco = id_materia is not None
-        if es_tronco:
-            if id_materia in self._tronco_horas:
-                ref = self._tronco_horas[id_materia]
-                if ref["hora_inicio"] != hi or ref["hora_fin"] != hf:
-                    self._msg(
-                        f"Esta materia de tronco común ya tiene hora "
-                        f"asignada: {ref['hora_inicio']}–{ref['hora_fin']}.\n"
-                        f"Debes seleccionar la misma hora."
-                    )
-                    return
-        else:
-            # ── Validación en memoria: optativa vs tronco ────
-            hi_new = datetime.strptime(hi, "%H:%M")
-            hf_new = datetime.strptime(hf, "%H:%M")
-            for _, th in self._tronco_horas.items():
-                hi_ex = datetime.strptime(th["hora_inicio"], "%H:%M")
-                hf_ex = datetime.strptime(th["hora_fin"], "%H:%M")
-                if hi_new < hf_ex and hf_new > hi_ex:
-                    self._msg(
-                        f"El horario {hi}–{hf} colisiona con una "
-                        f"materia de tronco común "
-                        f"({th['hora_inicio']}–{th['hora_fin']}).\n"
-                        f"Las optativas no pueden compartir hora "
-                        f"con materias de tronco común."
-                    )
-                    return
+        es_tronco  = id_materia is not None
+        id_sem     = int(self._dd_semestre.value) if self._dd_semestre.value else None
+
+        filas_edit = [{"dia": dia, "hora_inicio": hi, "hora_fin": hf}]
+        error = self._validar_tronco(es_tronco, id_materia, id_sem, filas_edit)
+        if error:
+            self._msg(error); return
 
         ok, msg = self._service.actualizar_horario(
             id_horario=self._editando_id,
@@ -1314,11 +1490,9 @@ class DetallePlanView(ft.Column):
         if not ok:
             self._msg(msg); return
 
-        # Registrar hora de tronco en caché de sesión
-        if es_tronco and id_materia not in self._tronco_horas:
-            self._tronco_horas[id_materia] = {
-                "hora_inicio": hi, "hora_fin": hf,
-            }
+        # Actualizar caché de tronco
+        if es_tronco and id_materia is not None and id_sem is not None:
+            self._registrar_tronco_cache(id_sem, id_materia, filas_edit)
 
         self._msg("¡Horario actualizado correctamente!")
         self._cancelar_edicion()
@@ -1327,44 +1501,58 @@ class DetallePlanView(ft.Column):
     # ── Tabla inferior ────────────────────────────────────────
 
     def _recargar_tabla(self) -> None:
-        registros = self._service.obtener_horarios(self._id_plan)
-        self._tabla.rows = [
-            ft.DataRow(cells=[
-                ft.DataCell(ft.Text(r.clave, size=12,
-                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                ft.DataCell(ft.Text(r.semestre, size=12,
-                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                ft.DataCell(ft.Text(r.unidad, size=12,
-                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                ft.DataCell(ft.Text(r.docente, size=12,
-                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                ft.DataCell(ft.Text(str(r.total_horas), size=12,
-                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                ft.DataCell(ft.Text(r.aulas, size=12,
-                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                ft.DataCell(ft.Text(r.periodo, size=12,
-                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                ft.DataCell(ft.Row([
-                    ft.IconButton(
-                        icon=ft.Icons.EDIT,
-                        icon_color=Colores.AZUL_PRIMARIO,
-                        icon_size=16, tooltip="Editar",
-                        on_click=lambda _, rid=r.id_horario:
-                            self._iniciar_edicion(rid),
-                    ),
-                    ft.IconButton(
-                        icon=ft.Icons.DELETE,
-                        icon_color=Colores.ROJO,
-                        icon_size=16, tooltip="Eliminar",
-                        on_click=lambda _, rid=r.id_horario:
-                            self._confirmar_eliminar(rid),
-                    ),
-                ], spacing=0)),
-            ])
-            for r in registros
-        ]
-        if self.page:
-            self._tabla.update()
+        try:
+            id_sem = self._dd_semestre.value
+            if not id_sem:
+                self._tabla.rows = []
+                if self.page:
+                    self._tabla.update()
+                return
+            registros = self._service.obtener_horarios_filtrados(
+                id_plan=self._id_plan,
+                id_lies=self._id_lies_activa,
+                id_semestre=int(id_sem),
+                id_semestre_opt=self._sem_opt.id if self._sem_opt else None,
+            )
+            self._tabla.rows = [
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(r.clave, size=12,
+                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
+                    ft.DataCell(ft.Text(r.semestre, size=12,
+                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
+                    ft.DataCell(ft.Text(r.unidad, size=12,
+                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
+                    ft.DataCell(ft.Text(r.docente, size=12,
+                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
+                    ft.DataCell(ft.Text(str(r.total_horas), size=12,
+                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
+                    ft.DataCell(ft.Text(r.aulas, size=12,
+                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
+                    ft.DataCell(ft.Text(r.periodo, size=12,
+                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
+                    ft.DataCell(ft.Row([
+                        ft.IconButton(
+                            icon=ft.Icons.EDIT,
+                            icon_color=Colores.AZUL_PRIMARIO,
+                            icon_size=16, tooltip="Editar",
+                            on_click=lambda _, rid=r.id_horario:
+                                self._iniciar_edicion(rid),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.DELETE,
+                            icon_color=Colores.ROJO,
+                            icon_size=16, tooltip="Eliminar",
+                            on_click=lambda _, rid=r.id_horario:
+                                self._confirmar_eliminar(rid),
+                        ),
+                    ], spacing=0)),
+                ])
+                for r in registros
+            ]
+            if self.page:
+                self._tabla.update()
+        except Exception as ex:
+            self._msg(f"Error al recargar tabla: {ex}")
 
     def _confirmar_eliminar(self, id_horario: int) -> None:
         """Muestra diálogo ¿Estás seguro? antes de eliminar."""
@@ -1382,8 +1570,17 @@ class DetallePlanView(ft.Column):
     # ── Helpers de PDF ─────────────────────────────────────────
 
     def _datos_para_pdf(self):
-        """Retorna (registros, nombre_plan, lies_nombre) o None."""
-        registros = self._service.obtener_horarios(self._id_plan)
+        """Retorna (registros, nombre_plan, lies_nombre, nombre_sem) o None."""
+        id_sem = self._dd_semestre.value
+        if not id_sem:
+            self._msg("Selecciona un semestre antes de exportar.")
+            return None
+        registros = self._service.obtener_horarios_filtrados(
+            id_plan=self._id_plan,
+            id_lies=self._id_lies_activa,
+            id_semestre=int(id_sem),
+            id_semestre_opt=self._sem_opt.id if self._sem_opt else None,
+        )
         if not registros:
             self._msg("No hay horarios registrados para exportar.")
             return None
@@ -1393,14 +1590,20 @@ class DetallePlanView(ft.Column):
             if lies.id == self._id_lies_activa:
                 lies_nombre = lies.nombre
                 break
-        return registros, nombre_plan, lies_nombre
+        # Obtener nombre del semestre seleccionado
+        nombre_sem = ""
+        for s in self._semestres:
+            if str(s.id) == id_sem:
+                nombre_sem = f"Semestre {s.numero}"
+                break
+        return registros, nombre_plan, lies_nombre, nombre_sem
 
     def _generar_pdf(self, ruta: str) -> bool:
         """Genera el PDF en la ruta indicada. Retorna True si tuvo éxito."""
         datos = self._datos_para_pdf()
         if datos is None:
             return False
-        registros, nombre_plan, lies_nombre = datos
+        registros, nombre_plan, lies_nombre, nombre_sem = datos
         try:
             GeneradorPDF(
                 horarios=registros,
@@ -1408,6 +1611,7 @@ class DetallePlanView(ft.Column):
                 nombre_lies=lies_nombre,
                 ruta_membrete=self._ruta_membrete,
                 ruta_salida=ruta,
+                nombre_semestre=nombre_sem,
             ).generar()
             return True
         except Exception as e:

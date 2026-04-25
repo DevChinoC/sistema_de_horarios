@@ -75,7 +75,8 @@ class PlanEstudiosService:
         repo    = PlanEstudiosRepository(session)
         try:
             # Crear plan vinculado a TODAS las LIES
-            plan = repo.crear_plan(dominio.nombre, dominio.id_nivel, dominio.lies_ids)
+            plan = repo.crear_plan(dominio.nombre, dominio.id_nivel, dominio.lies_ids,
+                                   ruta_membrete=dto.ruta_membrete)
             semestres_creados: dict[int, int] = {}
 
             for fila in dominio.filas:

@@ -33,6 +33,15 @@ class HorarioService:
         finally:
             session.close()
 
+    def obtener_ruta_membrete(self, id_plan: int) -> str | None:
+        """Retorna la ruta del membrete guardada en el plan, o None."""
+        session = self._db.get_session()
+        try:
+            plan = HorarioRepository(session).obtener_plan(id_plan)
+            return plan.ruta_membrete if plan else None
+        finally:
+            session.close()
+
     def obtener_nombre_nivel(self, id_plan: int) -> str:
         session = self._db.get_session()
         try:
@@ -147,6 +156,39 @@ class HorarioService:
         session = self._db.get_session()
         try:
             rows = HorarioRepository(session).obtener_horarios_del_plan(id_plan)
+            result = []
+            for idx, r in enumerate(rows, start=1):
+                result.append(HorarioRegistradoDTO(
+                    id_horario=r.id_horario,
+                    clave=str(idx).zfill(3),
+                    semestre=f"Semestre {r.semestre}" if r.semestre > 0 else "Optativa",
+                    unidad=r.unidad or "",
+                    docente=r.docente or "",
+                    aulas=r.aula or "",
+                    periodo=r.periodo or "",
+                    total_horas=r.total_horas or 0,
+                    dia=r.dia or "",
+                    hora_inicio=r.hora_inicio.strftime("%H:%M") if r.hora_inicio else "",
+                    hora_fin=r.hora_fin.strftime("%H:%M") if r.hora_fin else "",
+                    numero_semestre=r.semestre if r.semestre else 0,
+                ))
+            return result
+        finally:
+            session.close()
+
+    def obtener_horarios_filtrados(
+        self,
+        id_plan: int,
+        id_lies: int,
+        id_semestre: int,
+        id_semestre_opt: int | None = None,
+    ) -> list[HorarioRegistradoDTO]:
+        """Horarios filtrados por LIES y semestre (incluye optativas)."""
+        session = self._db.get_session()
+        try:
+            rows = HorarioRepository(session).obtener_horarios_filtrados(
+                id_plan, id_lies, id_semestre, id_semestre_opt,
+            )
             result = []
             for idx, r in enumerate(rows, start=1):
                 result.append(HorarioRegistradoDTO(

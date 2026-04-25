@@ -14,3 +14,4 @@ class CrearPlanDTO:
     id_nivel: int
     lies_ids: list[int]
     filas:    list[FilaMateriaDTO] = field(default_factory=list)
+    ruta_membrete: str | None = None

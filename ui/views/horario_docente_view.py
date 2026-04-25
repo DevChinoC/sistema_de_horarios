@@ -131,19 +131,10 @@ class HorarioDocenteView(ft.Container):
         self._save_picker = ft.FilePicker(on_result=self._on_save_result)
         page.overlay.append(self._save_picker)
 
-        # ── FilePicker para membrete ──────────────────────────
-        self._membrete_picker = ft.FilePicker(
-            on_result=self._on_membrete_seleccionado)
-        page.overlay.append(self._membrete_picker)
 
         # Registrar los pickers en la página
         page.update()
 
-        self._lbl_membrete = ft.Text(
-            "Sin membrete cargado", size=12,
-            color=Colores.TEXTO_MUTED, font_family=Fuentes.CAMPOS,
-            italic=True,
-        )
 
         # ── Datos iniciales ───────────────────────────────────
         self._docentes = list(service.obtener_docentes())
@@ -211,25 +202,7 @@ class HorarioDocenteView(ft.Container):
             ),
         )
 
-        # ════════════════════ BOTÓN MEMBRETE ═══════════════════
 
-        btn_membrete = ft.ElevatedButton(
-            text="Seleccionar membrete",
-            icon=ft.Icons.IMAGE_OUTLINED,
-            bgcolor=Colores.AZUL_PRIMARIO,
-            color=Colores.BLANCO,
-            elevation=0,
-            style=ft.ButtonStyle(
-                shape=ft.RoundedRectangleBorder(radius=6),
-                padding=ft.padding.symmetric(horizontal=16, vertical=10),
-                text_style=ft.TextStyle(size=12, font_family=Fuentes.CAMPOS),
-            ),
-            on_click=lambda _: self._membrete_picker.pick_files(
-                dialog_title="Seleccionar imagen de membrete",
-                allowed_extensions=["png", "jpg", "jpeg"],
-                allow_multiple=False,
-            ),
-        )
 
         # ════════════════════ FORMULARIO ══════════════════════
 
@@ -272,22 +245,7 @@ class HorarioDocenteView(ft.Container):
                         spacing=40,
                         vertical_alignment=ft.CrossAxisAlignment.START,
                     ),
-                    ft.Container(height=12),
-                    # Fila 3: Membrete
-                    ft.Row(
-                        controls=[
-                            ft.Column([
-                                _lbl("Membrete"),
-                                ft.Row(
-                                    controls=[btn_membrete, self._lbl_membrete],
-                                    spacing=10,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                ),
-                            ], spacing=6),
-                        ],
-                        spacing=40,
-                        vertical_alignment=ft.CrossAxisAlignment.START,
-                    ),
+
                 ],
                 spacing=0,
             ),
@@ -503,7 +461,7 @@ class HorarioDocenteView(ft.Container):
         if not id_sem:
             self._msg("Selecciona un semestre."); return
         if not self._ruta_membrete:
-            self._msg("Selecciona un membrete antes de generar."); return
+            self._msg("Selecciona un membrete al crear un plan de estudios."); return
 
         resumen = self._service.obtener_horarios_docente(
             id_docente=int(id_doc),
@@ -685,23 +643,6 @@ class HorarioDocenteView(ft.Container):
         except Exception as ex:
             self._msg(f"Error al exportar: {ex}")
 
-    # ── Membrete ──────────────────────────────────────────
-
-    def _on_membrete_seleccionado(self, e: ft.FilePickerResultEvent) -> None:
-        """Callback del FilePicker de membrete."""
-        if e.files:
-            self._ruta_membrete = e.files[0].path
-            nombre = e.files[0].name
-            self._lbl_membrete.value = nombre
-            self._lbl_membrete.color = Colores.TEXTO
-            self._lbl_membrete.italic = False
-        else:
-            self._ruta_membrete = None
-            self._lbl_membrete.value = "Sin membrete cargado"
-            self._lbl_membrete.color = Colores.TEXTO_MUTED
-            self._lbl_membrete.italic = True
-        if self.page:
-            self._lbl_membrete.update()
 
     # ── Limpiar ───────────────────────────────────────────────
 

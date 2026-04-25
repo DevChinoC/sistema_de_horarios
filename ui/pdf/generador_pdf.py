@@ -86,10 +86,12 @@ class GeneradorPDF:
         nombre_lies: str,
         ruta_membrete: Optional[str],
         ruta_salida: str,
+        nombre_semestre: str = "",
     ) -> None:
         self._horarios      = horarios
         self._nombre_plan   = nombre_plan
         self._nombre_lies   = nombre_lies
+        self._nombre_sem    = nombre_semestre
         self._ruta_membrete = ruta_membrete
         self._ruta_salida   = ruta_salida
 
@@ -130,6 +132,9 @@ class GeneradorPDF:
             f"Plan de estudios: <b>{self._nombre_plan}</b>", estilo_enc))
         story.append(Paragraph(
             f"Lies: <b>{self._nombre_lies}</b>", estilo_enc))
+        if self._nombre_sem:
+            story.append(Paragraph(
+                f"Semestre: <b>{self._nombre_sem}</b>", estilo_enc))
         story.append(Spacer(1, 0.4 * cm))
 
         # ── Tabla de horario semanal ─────────────────────────────
@@ -140,10 +145,12 @@ class GeneradorPDF:
         story.append(self._tabla_resumen())
 
         # Callback para dibujar el membrete como fondo de página
-        draw_bg = self._dibujar_membrete if tiene_membrete else None
-        doc.build(story,
-                  onFirstPage=draw_bg,
-                  onLaterPages=draw_bg)
+        if tiene_membrete:
+            doc.build(story,
+                      onFirstPage=self._dibujar_membrete,
+                      onLaterPages=self._dibujar_membrete)
+        else:
+            doc.build(story)
         return self._ruta_salida
 
     # ── Membrete (fondo de página completa) ───────────────────

@@ -123,6 +123,60 @@ class HorarioRepository:
             .all()
         )
 
+    def obtener_horarios_filtrados(
+        self,
+        id_plan: int,
+        id_lies: int,
+        id_semestre: int,
+        id_semestre_opt: int | None = None,
+    ) -> list[tuple]:
+        """Retorna horarios filtrados por LIES y semestre.
+
+        Incluye automáticamente las optativas (semestre con numero=0)
+        si se proporciona ``id_semestre_opt``.
+        """
+        from sqlalchemy import or_
+
+        sem_filter = [DetalleSemestreModel.id_semestre == id_semestre]
+        if id_semestre_opt is not None:
+            sem_filter.append(DetalleSemestreModel.id_semestre == id_semestre_opt)
+
+        return (
+            self._s.query(
+                HorarioModel.id_horario,
+                SemestreModel.numero.label("semestre"),
+                DetalleSemestreModel.nombre_posicion.label("unidad"),
+                DocenteModel.nombre.label("docente"),
+                AulaModel.nombre.label("aula"),
+                PeriodoEscolarModel.nombre.label("periodo"),
+                HorarioModel.total_horas,
+                HorarioModel.dia,
+                HorarioModel.hora_inicio,
+                HorarioModel.hora_fin,
+            )
+            .join(PlanGeneradoModel,
+                  PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
+            .join(AsignacionMateriaModel,
+                  AsignacionMateriaModel.id_asignacion == HorarioModel.id_asignacion)
+            .join(DetalleSemestreModel,
+                  DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
+            .join(SemestreModel,
+                  SemestreModel.id_semestre == DetalleSemestreModel.id_semestre)
+            .join(DocenteModel,
+                  DocenteModel.id_docente == HorarioModel.id_docente)
+            .join(AulaModel,
+                  AulaModel.id_aula == HorarioModel.id_aula)
+            .join(PeriodoEscolarModel,
+                  PeriodoEscolarModel.id_periodo == PlanGeneradoModel.id_periodo)
+            .filter(
+                PlanGeneradoModel.id_plan == id_plan,
+                DetalleSemestreModel.id_lies == id_lies,
+                or_(*sem_filter),
+            )
+            .order_by(HorarioModel.id_horario)
+            .all()
+        )
+
     # ── Escritura ─────────────────────────────────────────────
 
     def obtener_o_crear_plan_generado(

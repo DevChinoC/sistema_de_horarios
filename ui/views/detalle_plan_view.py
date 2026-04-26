@@ -651,7 +651,9 @@ class DetallePlanView(ft.Column):
         )
 
         # ════════════════════ COL 2 ════════════════════════════
-        # -- Unidad de aprendizaje: dropdown con búsqueda integrada --
+        # -- Unidad de aprendizaje: dropdown con lupa y búsqueda --
+        # La lupa aparece como ícono PREFIX (izquierda) del dropdown.
+        # Al hacer clic en ella se muestra el TextField de filtrado.
         self._unidad_all_opts: list[ft.dropdown.Option] = []  # copia maestra
         self._buscando_unidad = False
 
@@ -662,7 +664,7 @@ class DetallePlanView(ft.Column):
                 size=20,
             ),
             on_click=self._toggle_buscar_unidad,
-            tooltip="Buscar unidad",
+            tooltip="Haz clic para buscar por nombre",
             ink=True,
             padding=ft.padding.all(4),
         )
@@ -670,8 +672,9 @@ class DetallePlanView(ft.Column):
             hint_text="Seleccionar unidad",
             options=[], disabled=True,
             on_change=self._on_unidad_cambiada,
-            suffix=self._btn_buscar_unidad,
-            max_menu_height=150,
+            # Lupa al inicio (prefix) — clic la activa
+            prefix=self._btn_buscar_unidad,
+            max_menu_height=160,   # scroll cuando hay muchas materias
             **_dd_kw(_W_UA),
         )
         self._tf_buscar_unidad = ft.TextField(

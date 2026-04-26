@@ -23,6 +23,7 @@ from ui.components.plan_components import Colores, Fuentes, DialogoConfirmacion
 # Helpers de estilo
 # ─────────────────────────────────────────────────────────────
 _NEGRO = "#000000"
+ANCHO_BTN = 170
 
 def _lbl(texto: str) -> ft.Text:
     return ft.Text(
@@ -125,6 +126,7 @@ class HistorialView(ft.Container):
 
         btn_buscar = ft.ElevatedButton(
             text="Buscar",
+            width=ANCHO_BTN,
             on_click=lambda _: self._aplicar_filtros(),
             bgcolor=Colores.AZUL_PRIMARIO,
             color=Colores.BLANCO,
@@ -140,15 +142,22 @@ class HistorialView(ft.Container):
 
         btn_limpiar = ft.OutlinedButton(
             text="Limpiar filtros",
+            width=ANCHO_BTN,
             on_click=lambda _: self._limpiar_filtros(),
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=6),
-                padding=ft.padding.symmetric(horizontal=20, vertical=14),
+                padding=ft.padding.symmetric(horizontal=30, vertical=14),
                 side=ft.BorderSide(1.5, Colores.AZUL_PRIMARIO),
-                color=Colores.AZUL_PRIMARIO,
+                
                 text_style=ft.TextStyle(
-                    size=14, font_family=Fuentes.BOTONES),
+                    size=14, 
+                    font_family=Fuentes.BOTONES,
+                    weight=ft.FontWeight.BOLD,
+                    color=Colores.ROJO,
+                ),
+             color=Colores.ROJO,
             ),
+        
         )
 
         # ── Panel de filtros ──────────────────────────────────
@@ -156,29 +165,26 @@ class HistorialView(ft.Container):
             bgcolor=Colores.BLANCO,
             border=ft.border.all(1.5, Colores.BORDE),
             border_radius=8,
-            padding=ft.padding.all(24),
+            padding=ft.padding.symmetric(horizontal=24, vertical=40),
+
             margin=ft.margin.symmetric(horizontal=20, vertical=10),
-            content=ft.Column(
+            content=ft.Row(
                 controls=[
-                    # Fila 1: Grado | Plan de estudios | Periodo | Semestre
-                    ft.Row(
-                        controls=[
-                            ft.Column([_lbl("Grados"), self._dd_grado], spacing=4),
-                            ft.Column([_lbl("Plan de estudios"), self._dd_plan], spacing=4),
-                            ft.Column([_lbl("Periodo"), self._dd_periodo], spacing=4),
-                            ft.Column([_lbl("Semestre"), self._dd_semestre], spacing=4),
-                        ],
-                        spacing=20,
-                        vertical_alignment=ft.CrossAxisAlignment.START,
-                    ),
-                    ft.Container(height=16),
-                    # Fila 2: botones
-                    ft.Row(
+                    # Dropdowns: Grado | Plan de estudios | Periodo | Semestre
+                    ft.Column([_lbl("Grados"), self._dd_grado], spacing=3),
+                    ft.Column([_lbl("Plan de estudios"), self._dd_plan], spacing=3),
+                    ft.Column([_lbl("Periodo"), self._dd_periodo], spacing=3),
+                    ft.Column([_lbl("Semestre"), self._dd_semestre], spacing=3),
+                    # Botones apilados verticalmente a la derecha
+                    ft.Column(
                         controls=[btn_buscar, btn_limpiar],
-                        spacing=12,
+                        spacing=8,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                 ],
-                spacing=0,
+                spacing=20,
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.END,
             ),
         )
 
@@ -193,8 +199,8 @@ class HistorialView(ft.Container):
             ],
             rows=[],
             heading_row_color=Colores.AZUL_PRIMARIO,
-            heading_row_height=36,
-            data_row_max_height=40,
+            heading_row_height=45,
+            data_row_max_height=48,
             column_spacing=12,
             horizontal_margin=10,
             border=ft.border.all(1, Colores.BORDE),

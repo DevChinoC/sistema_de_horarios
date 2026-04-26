@@ -3,6 +3,7 @@ from domain.models.plan_estudios import PlanEstudiosDomain, FilaMateria
 from infrastructure.db.connection import DatabaseConnection
 from infrastructure.repositories.plan_estudios_repository import PlanEstudiosRepository
 from infrastructure.db.models import MateriaTroncoModel, OptativaModel
+from ui.membretes.gestor_membrete import GestorMembrete
 
 
 class PlanEstudiosService:
@@ -74,9 +75,9 @@ class PlanEstudiosService:
         session = self._db.get_session()
         repo    = PlanEstudiosRepository(session)
         try:
-            # Crear plan vinculado a TODAS las LIES
+            # Crear plan vinculado a TODAS las LIES (sin membrete aún)
             plan = repo.crear_plan(dominio.nombre, dominio.id_nivel, dominio.lies_ids,
-                                   ruta_membrete=dto.ruta_membrete)
+                                   ruta_membrete=None)
             semestres_creados: dict[int, int] = {}
 
             for fila in dominio.filas:
@@ -131,6 +132,23 @@ class PlanEstudiosService:
                         )
 
             repo.commit()
+
+            # ── Guardar membrete en carpeta del proyecto ──────────
+            if dto.ruta_membrete:
+                try:
+                    gestor = GestorMembrete(plan.id_plan)
+                    ruta_local = gestor.guardar(dto.ruta_membrete)
+                    # Actualizar la ruta en BD con la ruta local del proyecto
+                    plan.ruta_membrete = ruta_local
+                    session.add(plan)
+                    session.commit()
+                except Exception as exc_membrete:
+                    # El plan ya fue creado; el membrete es opcional → solo advertencia
+                    return True, (
+                        f"Plan '{dominio.nombre}' creado, pero el membrete "
+                        f"no se pudo copiar: {exc_membrete}"
+                    )
+
             return True, f"Plan '{dominio.nombre}' creado correctamente."
         except Exception as exc:
             repo.rollback()

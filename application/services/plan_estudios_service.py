@@ -49,8 +49,9 @@ class PlanEstudiosService:
             nivel = repo.crear_nivel(nombre)
             repo.commit()
             return {"id": nivel.id_nivel, "nombre": nivel.nombre}
-        except Exception:
+        except Exception as e:
             repo.rollback()
+            print(f"[ERROR] Error al crear nivel: {e}")
             return None
         finally:
             session.close()
@@ -62,6 +63,8 @@ class PlanEstudiosService:
           para CADA LIES y asignación a materias_tronco.
         - Optativas (id_tipo=2, semestre=0): se crean en tabla optativas
           y detalle para CADA LIES con semestre 0.
+        - El membrete se guarda en ui/membretes/<id_plan>/ mediante
+          GestorMembrete (no se persiste en BD).
         """
         dominio = PlanEstudiosDomain(
             nombre=dto.nombre, id_nivel=dto.id_nivel, lies_ids=dto.lies_ids,
@@ -75,9 +78,8 @@ class PlanEstudiosService:
         session = self._db.get_session()
         repo    = PlanEstudiosRepository(session)
         try:
-            # Crear plan vinculado a TODAS las LIES (sin membrete aún)
-            plan = repo.crear_plan(dominio.nombre, dominio.id_nivel, dominio.lies_ids,
-                                   ruta_membrete=None)
+            # Crear plan vinculado a TODAS las LIES (sin membrete en BD)
+            plan = repo.crear_plan(dominio.nombre, dominio.id_nivel, dominio.lies_ids)
             semestres_creados: dict[int, int] = {}
 
             for fila in dominio.filas:
@@ -137,13 +139,10 @@ class PlanEstudiosService:
             if dto.ruta_membrete:
                 try:
                     gestor = GestorMembrete(plan.id_plan)
-                    ruta_local = gestor.guardar(dto.ruta_membrete)
-                    # Actualizar la ruta en BD con la ruta local del proyecto
-                    plan.ruta_membrete = ruta_local
-                    session.add(plan)
-                    session.commit()
+                    gestor.guardar(dto.ruta_membrete)
                 except Exception as exc_membrete:
                     # El plan ya fue creado; el membrete es opcional → solo advertencia
+                    print(f"[WARN] Membrete no se pudo copiar: {exc_membrete}")
                     return True, (
                         f"Plan '{dominio.nombre}' creado, pero el membrete "
                         f"no se pudo copiar: {exc_membrete}"
@@ -152,6 +151,7 @@ class PlanEstudiosService:
             return True, f"Plan '{dominio.nombre}' creado correctamente."
         except Exception as exc:
             repo.rollback()
+            print(f"[ERROR] Error al guardar plan: {exc}")
             return False, f"Error al guardar: {exc}"
         finally:
             session.close()

@@ -34,30 +34,13 @@ class HorarioService:
             session.close()
 
     def obtener_ruta_membrete(self, id_plan: int) -> str | None:
-        """Retorna la ruta del membrete del plan.
+        """Retorna la ruta del membrete del plan desde la carpeta del proyecto.
 
-        Prioridad:
-        1. Ruta local en la carpeta ui/membretes/<id_plan>/ (almacenada en BD).
-        2. Si la ruta en BD existe en disco → la devuelve.
-        3. Si no → intenta resolverla desde la carpeta del proyecto.
-        4. None si no hay membrete.
+        El membrete se almacena en ui/membretes/<id_plan>/membrete.<ext>
+        gestionado por GestorMembrete. No se guarda en la BD.
         """
         from ui.membretes.gestor_membrete import GestorMembrete
-        session = self._db.get_session()
-        try:
-            plan = HorarioRepository(session).obtener_plan(id_plan)
-            if not plan:
-                return None
-            ruta_bd = plan.ruta_membrete
-            # Verificar si la ruta guardada en BD sigue existiendo
-            if ruta_bd:
-                import os
-                if os.path.isfile(ruta_bd):
-                    return ruta_bd
-            # Intentar resolución desde la carpeta del proyecto
-            return GestorMembrete(id_plan).obtener_ruta()
-        finally:
-            session.close()
+        return GestorMembrete(id_plan).obtener_ruta()
 
     def obtener_nombre_nivel(self, id_plan: int) -> str:
         session = self._db.get_session()
@@ -251,6 +234,7 @@ class HorarioService:
             return True, "Horario guardado correctamente."
         except Exception as e:
             repo.rollback()
+            print(f"[ERROR] Error al guardar horario: {e}")
             return False, f"Error al guardar horario: {e}"
         finally:
             session.close()
@@ -266,6 +250,7 @@ class HorarioService:
             return True, "Horario eliminado."
         except Exception as e:
             repo.rollback()
+            print(f"[ERROR] Error al eliminar horario: {e}")
             return False, f"Error al eliminar: {e}"
         finally:
             session.close()
@@ -321,6 +306,7 @@ class HorarioService:
             return True, "Horario actualizado correctamente."
         except Exception as e:
             repo.rollback()
+            print(f"[ERROR] Error al actualizar horario: {e}")
             return False, f"Error al actualizar horario: {e}"
         finally:
             session.close()
@@ -334,8 +320,9 @@ class HorarioService:
             aula = repo.crear_aula(nombre)
             repo.commit()
             return AulaDTO(id=aula.id_aula, nombre=aula.nombre)
-        except Exception:
+        except Exception as e:
             repo.rollback()
+            print(f"[ERROR] Error al crear aula: {e}")
             return None
         finally:
             session.close()
@@ -347,8 +334,9 @@ class HorarioService:
             doc = repo.crear_docente(nombre)
             repo.commit()
             return DocenteDTO(id=doc.id_docente, nombre=doc.nombre)
-        except Exception:
+        except Exception as e:
             repo.rollback()
+            print(f"[ERROR] Error al crear docente: {e}")
             return None
         finally:
             session.close()
@@ -360,8 +348,9 @@ class HorarioService:
             per = repo.crear_periodo(nombre)
             repo.commit()
             return PeriodoDTO(id=per.id_periodo, nombre=per.nombre)
-        except Exception:
+        except Exception as e:
             repo.rollback()
+            print(f"[ERROR] Error al crear periodo: {e}")
             return None
         finally:
             session.close()
@@ -529,6 +518,7 @@ class HorarioService:
             return True, "Registro eliminado correctamente."
         except Exception as e:
             repo.rollback()
+            print(f"[ERROR] Error al eliminar plan generado: {e}")
             return False, f"Error al eliminar: {e}"
         finally:
             session.close()

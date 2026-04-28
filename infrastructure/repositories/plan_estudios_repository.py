@@ -16,10 +16,8 @@ class PlanEstudiosRepository:
     def obtener_materias_tronco(self)->list:return self._session.query(MateriaTroncoModel).all()
     def obtener_planes(self)       -> list: return self._session.query(PlanEstudiosModel).filter_by(activo=1).all()
 
-    def crear_plan(self, nombre: str, id_nivel: int, lies_ids: list[int],
-                   ruta_membrete: str | None = None) -> PlanEstudiosModel:
-        plan = PlanEstudiosModel(nombre=nombre, id_nivel=id_nivel,
-                                ruta_membrete=ruta_membrete)
+    def crear_plan(self, nombre: str, id_nivel: int, lies_ids: list[int]) -> PlanEstudiosModel:
+        plan = PlanEstudiosModel(nombre=nombre, id_nivel=id_nivel)
         lies = self._session.query(LiesModel).filter(LiesModel.id_lies.in_(lies_ids)).all()
         plan.lies = lies
         self._session.add(plan)

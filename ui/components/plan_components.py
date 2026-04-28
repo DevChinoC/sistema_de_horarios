@@ -526,6 +526,8 @@ class TablaMaterias(ft.Column):
         self._col_filas.controls.append(contenedor)
         if self.page:
             self._col_filas.update()
+            self._col_filas.scroll_to(offset=-1, duration=200)
+            fila.campo_nombre.focus()
 
     def obtener_filas(self) -> list[dict]:
         return [d for f in self._filas if (d := f.obtener_datos())]

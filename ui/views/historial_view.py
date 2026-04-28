@@ -708,4 +708,5 @@ class HistorialView(ft.Container):
     # ── Helpers ───────────────────────────────────────────────
 
     def _msg(self, texto: str) -> None:
+        print(f"[HistorialView] {texto}")
         self._page.open(ft.SnackBar(content=ft.Text(texto)))

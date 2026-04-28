@@ -37,7 +37,8 @@ class CrearPlanView(ft.Container):
       proyecto; la ruta local se persiste en BD.
 
     Reglas de negocio:
-    • Plan engloba TODAS las LIES de la BD.
+    • Si el grado es MIIDT → el plan se asocia a TODAS las LIES.
+    • Si el grado NO es MIIDT → el plan se asocia solo a la primera LIES.
     • Tipo Optativa → semestre fijo en 0 (bloqueado).
     • Tipo Tronco   → semestre 1-8 (opción 0 no aparece).
     • Fila inicial vacía: solo hint_text, sin texto prefijado.
@@ -112,7 +113,6 @@ class CrearPlanView(ft.Container):
             italic=True,
         )
         self._file_picker = ft.FilePicker(on_result=self._on_membrete_resultado)
-        page.overlay.append(self._file_picker)
 
         btn_membrete = ft.ElevatedButton(
             text="Seleccionar membrete",
@@ -232,6 +232,21 @@ class CrearPlanView(ft.Container):
             bgcolor=Colores.BLANCO,
         )
 
+    # ── Ciclo de vida ─────────────────────────────────────────
+
+    def did_mount(self) -> None:
+        """Registra el FilePicker en page.overlay una vez que el control
+        forma parte del árbol de la página."""
+        if self._file_picker not in self._page.overlay:
+            self._page.overlay.append(self._file_picker)
+            self._page.update()
+
+    def will_unmount(self) -> None:
+        """Limpia el FilePicker del overlay al desmontar la vista."""
+        if self._file_picker in self._page.overlay:
+            self._page.overlay.remove(self._file_picker)
+            self._page.update()
+
     # ── Callbacks ─────────────────────────────────────────────
 
     def _on_grado_cambiado(self, nombre: str, id_nivel: int | None) -> None:
@@ -269,12 +284,21 @@ class CrearPlanView(ft.Container):
             self._mostrar_mensaje("Selecciona un membrete antes de guardar.")
             return
 
-        all_lies_ids = [l["id"] for l in self._todas_lies]
+        # LIES: solo MIIDT usa todas; otros grados → solo la primera
+        _NIVEL_CON_LIES = "MIIDT"
+        if grado.upper() == _NIVEL_CON_LIES:
+            lies_ids = [l["id"] for l in self._todas_lies]
+        else:
+            lies_ids = [self._todas_lies[0]["id"]] if self._todas_lies else []
+
+        if not lies_ids:
+            self._mostrar_mensaje("No hay LIES registradas en la BD.")
+            return
 
         dto = CrearPlanDTO(
             nombre=nombre,
             id_nivel=id_nivel,
-            lies_ids=all_lies_ids,
+            lies_ids=lies_ids,
             filas=[
                 FilaMateriaDTO(f["nombre_materia"], f["id_tipo"], f["numero_semestre"])
                 for f in filas
@@ -346,4 +370,5 @@ class CrearPlanView(ft.Container):
             self._on_membrete_seleccionado(self._ruta_membrete)
 
     def _mostrar_mensaje(self, texto: str) -> None:
+        print(f"[CrearPlanView] {texto}")
         self._page.open(ft.SnackBar(content=ft.Text(texto)))

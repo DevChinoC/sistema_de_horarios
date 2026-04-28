@@ -528,12 +528,20 @@ class DetallePlanView(ft.Column):
         semestres_raw   = service.obtener_semestres(id_plan)
         self._sem_opt   = next((s for s in semestres_raw if s.numero == 0), None)
         self._semestres = [s for s in semestres_raw if s.numero > 0]
-        self._all_lies  = service.obtener_todas_lies_del_plan(id_plan)
+        # LIES tabs solo visibles para MIIDT
+        self._all_lies  = service.obtener_lies_del_plan(id_plan)
         self._aulas     = list(service.obtener_aulas())
         self._docentes  = list(service.obtener_docentes())
         self._tipos     = service.obtener_tipos_materia()
         self._unidades  = []
-        self._id_lies_activa = self._all_lies[0].id if self._all_lies else 0
+
+        if self._all_lies:
+            # MIIDT → el usuario selecciona la LIES activa
+            self._id_lies_activa = self._all_lies[0].id
+        else:
+            # No MIIDT → tomar la primera LIES asociada al plan para queries
+            _all = service.obtener_todas_lies_del_plan(id_plan)
+            self._id_lies_activa = _all[0].id if _all else 0
 
         # ════════════════════ LIES TABS ═══════════════════════
         self._lies_btns: list[ft.OutlinedButton] = []
@@ -1747,4 +1755,5 @@ class DetallePlanView(ft.Column):
             self._on_volver()
 
     def _msg(self, texto: str) -> None:
+        print(f"[DetallePlanView] {texto}")
         self._page.open(ft.SnackBar(content=ft.Text(texto)))

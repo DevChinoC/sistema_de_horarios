@@ -36,7 +36,6 @@ class PlanEstudiosModel(Base):
     nombre         = Column(String(150), nullable=False)
     activo         = Column(SmallInteger, default=1)
     id_nivel       = Column(Integer, ForeignKey("nivel_academico.id_nivel"), nullable=False)
-    ruta_membrete  = Column(String(500), nullable=True)
     nivel    = relationship("NivelAcademicoModel", back_populates="planes")
     lies     = relationship("LiesModel", secondary=plan_lies_table, back_populates="planes")
     semestres       = relationship("SemestreModel",     back_populates="plan")

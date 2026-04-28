@@ -129,11 +129,6 @@ class HorarioDocenteView(ft.Container):
 
         # ── FilePicker para exportar ──────────────────────────
         self._save_picker = ft.FilePicker(on_result=self._on_save_result)
-        page.overlay.append(self._save_picker)
-
-
-        # Registrar los pickers en la página
-        page.update()
 
 
         # ── Datos iniciales ───────────────────────────────────
@@ -361,6 +356,20 @@ class HorarioDocenteView(ft.Container):
             expand=True,
             bgcolor=Colores.BLANCO,
         )
+
+    # ── Ciclo de vida ─────────────────────────────────────────
+
+    def did_mount(self) -> None:
+        """Registra el FilePicker en page.overlay."""
+        if self._save_picker not in self._page.overlay:
+            self._page.overlay.append(self._save_picker)
+            self._page.update()
+
+    def will_unmount(self) -> None:
+        """Limpia el FilePicker del overlay al desmontar."""
+        if self._save_picker in self._page.overlay:
+            self._page.overlay.remove(self._save_picker)
+            self._page.update()
 
     # ── Cascada: Docente → Periodo → Plan → Semestre ──────────
 
@@ -692,4 +701,5 @@ class HorarioDocenteView(ft.Container):
     # ── Mensajes ──────────────────────────────────────────────
 
     def _msg(self, texto: str) -> None:
+        print(f"[HorarioDocenteView] {texto}")
         self._page.open(ft.SnackBar(content=ft.Text(texto)))

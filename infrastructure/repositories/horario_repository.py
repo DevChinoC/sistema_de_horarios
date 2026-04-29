@@ -403,6 +403,166 @@ class HorarioRepository:
             .all()
         )
 
+    # ── Cascada por Grado (nivel) ─────────────────────────────
+
+    def obtener_niveles_con_historial(self) -> list[NivelAcademicoModel]:
+        """Retorna niveles que tienen al menos un plan_generado en historial."""
+        ids = (
+            self._s.query(PlanEstudiosModel.id_nivel)
+            .join(PlanGeneradoModel,
+                  PlanGeneradoModel.id_plan == PlanEstudiosModel.id_plan)
+            .distinct()
+            .scalar_subquery()
+        )
+        return (
+            self._s.query(NivelAcademicoModel)
+            .filter(NivelAcademicoModel.id_nivel.in_(ids))
+            .order_by(NivelAcademicoModel.nombre)
+            .all()
+        )
+
+    def obtener_periodos_por_nivel(
+        self, id_nivel: int,
+    ) -> list[PeriodoEscolarModel]:
+        """Periodos que tienen al menos un plan_generado del nivel dado."""
+        ids = (
+            self._s.query(PlanGeneradoModel.id_periodo)
+            .join(PlanEstudiosModel,
+                  PlanEstudiosModel.id_plan == PlanGeneradoModel.id_plan)
+            .filter(PlanEstudiosModel.id_nivel == id_nivel)
+            .distinct()
+            .scalar_subquery()
+        )
+        return (
+            self._s.query(PeriodoEscolarModel)
+            .filter(PeriodoEscolarModel.id_periodo.in_(ids))
+            .order_by(PeriodoEscolarModel.nombre)
+            .all()
+        )
+
+    def obtener_planes_por_nivel_periodo(
+        self, id_nivel: int, id_periodo: int,
+    ) -> list[PlanEstudiosModel]:
+        """Planes activos del nivel que tienen plan_generado en el periodo."""
+        ids = (
+            self._s.query(PlanGeneradoModel.id_plan)
+            .join(PlanEstudiosModel,
+                  PlanEstudiosModel.id_plan == PlanGeneradoModel.id_plan)
+            .filter(
+                PlanEstudiosModel.id_nivel == id_nivel,
+                PlanGeneradoModel.id_periodo == id_periodo,
+            )
+            .distinct()
+            .scalar_subquery()
+        )
+        return (
+            self._s.query(PlanEstudiosModel)
+            .filter(PlanEstudiosModel.id_plan.in_(ids))
+            .order_by(PlanEstudiosModel.nombre)
+            .all()
+        )
+
+    def obtener_semestres_por_nivel_plan_periodo(
+        self, id_nivel: int, id_plan: int, id_periodo: int,
+    ) -> list[SemestreModel]:
+        """Semestres (numero > 0) del plan/nivel/periodo con horarios."""
+        ids = (
+            self._s.query(SemestreModel.id_semestre)
+            .join(DetalleSemestreModel,
+                  DetalleSemestreModel.id_semestre == SemestreModel.id_semestre)
+            .join(AsignacionMateriaModel,
+                  AsignacionMateriaModel.id_detalle == DetalleSemestreModel.id_detalle)
+            .join(HorarioModel,
+                  HorarioModel.id_asignacion == AsignacionMateriaModel.id_asignacion)
+            .join(PlanGeneradoModel,
+                  PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
+            .join(PlanEstudiosModel,
+                  PlanEstudiosModel.id_plan == PlanGeneradoModel.id_plan)
+            .filter(
+                PlanEstudiosModel.id_nivel == id_nivel,
+                PlanGeneradoModel.id_plan == id_plan,
+                PlanGeneradoModel.id_periodo == id_periodo,
+                SemestreModel.numero > 0,
+            )
+            .distinct()
+            .scalar_subquery()
+        )
+        return (
+            self._s.query(SemestreModel)
+            .filter(SemestreModel.id_semestre.in_(ids))
+            .order_by(SemestreModel.numero)
+            .all()
+        )
+
+    def obtener_niveles_con_docente(self) -> list[NivelAcademicoModel]:
+        """Retorna niveles que tienen planes con horarios de docentes."""
+        ids = (
+            self._s.query(PlanEstudiosModel.id_nivel)
+            .join(PlanGeneradoModel,
+                  PlanGeneradoModel.id_plan == PlanEstudiosModel.id_plan)
+            .join(HorarioModel,
+                  HorarioModel.id_plan_generado == PlanGeneradoModel.id_plan_generado)
+            .distinct()
+            .scalar_subquery()
+        )
+        return (
+            self._s.query(NivelAcademicoModel)
+            .filter(NivelAcademicoModel.id_nivel.in_(ids))
+            .order_by(NivelAcademicoModel.nombre)
+            .all()
+        )
+
+    def obtener_periodos_por_docente_nivel(
+        self, id_docente: int, id_nivel: int,
+    ) -> list[PeriodoEscolarModel]:
+        """Periodos donde el docente tiene horarios en planes del nivel dado."""
+        ids = (
+            self._s.query(PeriodoEscolarModel.id_periodo)
+            .join(PlanGeneradoModel,
+                  PlanGeneradoModel.id_periodo == PeriodoEscolarModel.id_periodo)
+            .join(HorarioModel,
+                  HorarioModel.id_plan_generado == PlanGeneradoModel.id_plan_generado)
+            .join(PlanEstudiosModel,
+                  PlanEstudiosModel.id_plan == PlanGeneradoModel.id_plan)
+            .filter(
+                HorarioModel.id_docente == id_docente,
+                PlanEstudiosModel.id_nivel == id_nivel,
+            )
+            .distinct()
+            .scalar_subquery()
+        )
+        return (
+            self._s.query(PeriodoEscolarModel)
+            .filter(PeriodoEscolarModel.id_periodo.in_(ids))
+            .order_by(PeriodoEscolarModel.nombre)
+            .all()
+        )
+
+    def obtener_planes_por_docente_nivel_periodo(
+        self, id_docente: int, id_nivel: int, id_periodo: int,
+    ) -> list[PlanEstudiosModel]:
+        """Planes del nivel/periodo donde el docente tiene horarios."""
+        ids = (
+            self._s.query(PlanGeneradoModel.id_plan)
+            .join(HorarioModel,
+                  HorarioModel.id_plan_generado == PlanGeneradoModel.id_plan_generado)
+            .join(PlanEstudiosModel,
+                  PlanEstudiosModel.id_plan == PlanGeneradoModel.id_plan)
+            .filter(
+                HorarioModel.id_docente == id_docente,
+                PlanEstudiosModel.id_nivel == id_nivel,
+                PlanGeneradoModel.id_periodo == id_periodo,
+            )
+            .distinct()
+            .scalar_subquery()
+        )
+        return (
+            self._s.query(PlanEstudiosModel)
+            .filter(PlanEstudiosModel.id_plan.in_(ids))
+            .order_by(PlanEstudiosModel.nombre)
+            .all()
+        )
+
     # ── Creación de catálogos globales ────────────────────────
 
     def crear_aula(self, nombre: str) -> AulaModel:

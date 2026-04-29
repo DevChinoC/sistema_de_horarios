@@ -211,16 +211,16 @@ class HorarioService:
 
     # ── Guardar horario ───────────────────────────────────────
 
-    def guardar_horario(self, dto: GuardarHorarioDTO) -> tuple[bool, str]:
+    def guardar_horario(self, dto: GuardarHorarioDTO) -> tuple[bool, str, int | None]:
+        """Retorna (ok, mensaje, id_horario_creado | None)."""
         session = self._db.get_session()
         repo    = HorarioRepository(session)
         try:
-            # Parsear horas
             hi = datetime.strptime(dto.hora_inicio, "%H:%M").time()
             hf = datetime.strptime(dto.hora_fin,    "%H:%M").time()
 
             pg = repo.obtener_o_crear_plan_generado(dto.id_plan, dto.id_periodo)
-            repo.crear_horario(
+            h  = repo.crear_horario(
                 id_plan_generado=pg.id_plan_generado,
                 id_asignacion=dto.id_asignacion,
                 id_docente=dto.id_docente,
@@ -231,11 +231,11 @@ class HorarioService:
                 total_horas=dto.total_horas,
             )
             repo.commit()
-            return True, "Horario guardado correctamente."
+            return True, "Horario guardado correctamente.", h.id_horario
         except Exception as e:
             repo.rollback()
             print(f"[ERROR] Error al guardar horario: {e}")
-            return False, f"Error al guardar horario: {e}"
+            return False, f"Error al guardar horario: {e}", None
         finally:
             session.close()
 

@@ -2,6 +2,14 @@
 ui/views/horario_docente_view.py
 Vista embebida para generar, previsualizar y exportar el horario
 semanal de un docente en formato PDF.
+
+Cambios:
+  - Dropdown «Grado» como primer filtro (antes de Docente).
+  - Cascada: Grado → Docente → Periodo → Plan de estudios → Semestre.
+  - El membrete se obtiene automáticamente del plan de estudios
+    seleccionado (gestor_membrete), igual que en crear_plan_view.
+  - «Limpiar» regresa al estado inicial completo (hint_text visibles,
+    dropdowns deshabilitados excepto Grado).
 """
 
 import os
@@ -18,20 +26,19 @@ from ui.pdf.generador_pdf_docente import GeneradorPdfDocente
 # ─────────────────────────────────────────────────────────────
 # Constantes de layout
 # ─────────────────────────────────────────────────────────────
-_W_DD = 220          # ancho de dropdowns
+_W_DD = 220
 _COLOR_HDR = "#3D5FD2"
 _NEGRO = "#000000"
 _DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
 
 
 # ─────────────────────────────────────────────────────────────
-# Helpers de estilo (reutilizados de detalle_plan_view)
+# Helpers de estilo
 # ─────────────────────────────────────────────────────────────
 def _opcion(key: str, text: str) -> ft.dropdown.Option:
     return ft.dropdown.Option(
         key=key, text=text,
-        text_style=ft.TextStyle(
-            color=_NEGRO, font_family=Fuentes.CAMPOS),
+        text_style=ft.TextStyle(color=_NEGRO, font_family=Fuentes.CAMPOS),
     )
 
 
@@ -46,8 +53,7 @@ def _dd_kw(width: int) -> dict:
         width=width,
         content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
         text_style=ft.TextStyle(color=_NEGRO, font_family=Fuentes.CAMPOS),
-        hint_style=ft.TextStyle(
-            color=Colores.TEXTO_MUTED, font_family=Fuentes.CAMPOS),
+        hint_style=ft.TextStyle(color=Colores.TEXTO_MUTED, font_family=Fuentes.CAMPOS),
     )
 
 
@@ -94,8 +100,7 @@ class _CabeceraDocente(ft.Container):
             ),
             bgcolor=Colores.BLANCO,
             padding=ft.padding.symmetric(horizontal=20, vertical=14),
-            border=ft.border.only(
-                bottom=ft.BorderSide(3, Colores.AZUL_PRIMARIO)),
+            border=ft.border.only(bottom=ft.BorderSide(3, Colores.AZUL_PRIMARIO)),
         )
 
 
@@ -107,11 +112,11 @@ class HorarioDocenteView(ft.Container):
     'Horario por docente'.
 
     Flujo:
-    1. Seleccionar Docente, Periodo, Plan de estudios, Semestre
+    1. Seleccionar Grado → Docente → Periodo → Plan de estudios → Semestre
     2. Clic en «Generar» → consultar BD → previsualizar tabla
-    3. «Ver Documento» → popup con imagen del PDF (membrete + tabla)
+    3. «Ver Documento» → popup con imagen del PDF (membrete del plan + tabla)
     4. «Exportar» → guardar .pdf en ruta elegida
-    5. «Limpiar» → resetear todo
+    5. «Limpiar» → resetear al estado inicial
     """
 
     def __init__(
@@ -122,27 +127,38 @@ class HorarioDocenteView(ft.Container):
     ) -> None:
         self._page = page
         self._service = service
-        self._ruta_membrete = ruta_membrete
+        self._ruta_membrete: str | None = ruta_membrete
 
         # Estado interno
         self._resumen: HorarioDocenteResumenDTO | None = None
 
-        # ── FilePicker para exportar ──────────────────────────
+        # FilePicker para exportar
         self._save_picker = ft.FilePicker(on_result=self._on_save_result)
 
-
-        # ── Datos iniciales ───────────────────────────────────
+        # Datos iniciales
         self._docentes = list(service.obtener_docentes())
+        self._niveles  = list(service.obtener_niveles_con_docente())
 
-        # ════════════════════ DROPDOWNS ═══════════════════════
+        # ════════ DROPDOWNS ════════
 
+        # 1) Grado — siempre habilitado
+        self._dd_grado = ft.Dropdown(
+            hint_text="Seleccionar grado",
+            options=[_opcion(str(n["id"]), n["nombre"]) for n in self._niveles],
+            on_change=self._on_grado_cambiado,
+            **_dd_kw(_W_DD),
+        )
+
+        # 2) Docente — depende de Grado
         self._dd_docente = ft.Dropdown(
             hint_text="Seleccionar docente",
-            options=[_opcion(str(d.id), d.nombre) for d in self._docentes],
+            options=[],
+            disabled=True,
             on_change=self._on_docente_cambiado,
             **_dd_kw(_W_DD),
         )
 
+        # 3) Periodo — depende de Grado + Docente
         self._dd_periodo = ft.Dropdown(
             hint_text="Seleccionar periodo",
             options=[],
@@ -151,6 +167,7 @@ class HorarioDocenteView(ft.Container):
             **_dd_kw(_W_DD),
         )
 
+        # 4) Plan de estudios — depende de Grado + Docente + Periodo
         self._dd_plan = ft.Dropdown(
             hint_text="Seleccionar plan de estudios",
             options=[],
@@ -159,6 +176,7 @@ class HorarioDocenteView(ft.Container):
             **_dd_kw(_W_DD),
         )
 
+        # 5) Semestre — depende de todos los anteriores
         self._dd_semestre = ft.Dropdown(
             hint_text="Seleccionar semestre",
             options=[],
@@ -166,7 +184,7 @@ class HorarioDocenteView(ft.Container):
             **_dd_kw(_W_DD),
         )
 
-        # ════════════════════ BOTONES ═════════════════════════
+        # ════════ BOTONES ════════
 
         btn_limpiar = ft.OutlinedButton(
             text="Limpiar",
@@ -197,9 +215,7 @@ class HorarioDocenteView(ft.Container):
             ),
         )
 
-
-
-        # ════════════════════ FORMULARIO ══════════════════════
+        # ════════ FORMULARIO ════════
 
         formulario = ft.Container(
             bgcolor=Colores.BLANCO,
@@ -209,44 +225,35 @@ class HorarioDocenteView(ft.Container):
             margin=ft.margin.symmetric(horizontal=20, vertical=10),
             content=ft.Column(
                 controls=[
-                    # Fila 1: Docente | Periodo | Limpiar
+                    # Fila 1: Grado | Docente | Periodo | Limpiar
                     ft.Row(
                         controls=[
-                            ft.Column([_lbl("Docente"), self._dd_docente],
-                                      spacing=4),
-                            ft.Column([_lbl("Periodo"), self._dd_periodo],
-                                      spacing=4),
-                            ft.Container(
-                                content=btn_limpiar,
-                                margin=ft.margin.only(top=18),
-                            ),
+                            ft.Column([_lbl("Grado"), self._dd_grado], spacing=4),
+                            ft.Column([_lbl("Docente"), self._dd_docente], spacing=4),
+                            ft.Column([_lbl("Periodo"), self._dd_periodo], spacing=4),
+                            ft.Container(content=btn_limpiar, margin=ft.margin.only(top=18)),
                         ],
-                        spacing=40,
+                        spacing=20,
                         vertical_alignment=ft.CrossAxisAlignment.START,
+                        wrap=True,
                     ),
                     ft.Container(height=8),
                     # Fila 2: Plan de estudios | Semestre | Generar
                     ft.Row(
                         controls=[
-                            ft.Column([_lbl("Plan de estudios"),
-                                       self._dd_plan], spacing=4),
-                            ft.Column([_lbl("Semestre"),
-                                       self._dd_semestre], spacing=4),
-                            ft.Container(
-                                content=btn_generar,
-                                margin=ft.margin.only(top=18),
-                            ),
+                            ft.Column([_lbl("Plan de estudios"), self._dd_plan], spacing=4),
+                            ft.Column([_lbl("Semestre"), self._dd_semestre], spacing=4),
+                            ft.Container(content=btn_generar, margin=ft.margin.only(top=18)),
                         ],
                         spacing=40,
                         vertical_alignment=ft.CrossAxisAlignment.START,
                     ),
-
                 ],
                 spacing=0,
             ),
         )
 
-        # ════════════════════ PREVISUALIZACIÓN ════════════════
+        # ════════ PREVISUALIZACIÓN ════════
 
         self._lbl_prev = ft.Text(
             "Previsualización",
@@ -274,7 +281,7 @@ class HorarioDocenteView(ft.Container):
             expand=True,
         )
 
-        # ════════════════════ BOTONES INFERIORES ══════════════
+        # ════════ BOTONES INFERIORES ════════
 
         self._btn_ver = ft.ElevatedButton(
             text="Ver Documento",
@@ -313,7 +320,7 @@ class HorarioDocenteView(ft.Container):
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         )
 
-        # ════════════════════ PANEL PREVIO ════════════════════
+        # ════════ PANEL PREVIO ════════
 
         panel_prev = ft.Container(
             bgcolor=Colores.BLANCO,
@@ -325,10 +332,7 @@ class HorarioDocenteView(ft.Container):
                 controls=[
                     self._lbl_prev,
                     ft.Container(height=8),
-                    ft.Row(
-                        controls=[self._tabla_prev],
-                        scroll=ft.ScrollMode.AUTO,
-                    ),
+                    ft.Row(controls=[self._tabla_prev], scroll=ft.ScrollMode.AUTO),
                     ft.Container(height=14),
                     fila_botones,
                 ],
@@ -338,7 +342,7 @@ class HorarioDocenteView(ft.Container):
         )
         self._panel_prev = panel_prev
 
-        # ════════════════════ ENSAMBLADO ══════════════════════
+        # ════════ ENSAMBLADO ════════
 
         contenido = ft.Column(
             controls=[
@@ -360,81 +364,88 @@ class HorarioDocenteView(ft.Container):
     # ── Ciclo de vida ─────────────────────────────────────────
 
     def did_mount(self) -> None:
-        """Registra el FilePicker en page.overlay."""
         if self._save_picker not in self._page.overlay:
             self._page.overlay.append(self._save_picker)
             self._page.update()
 
     def will_unmount(self) -> None:
-        """Limpia el FilePicker del overlay al desmontar."""
         if self._save_picker in self._page.overlay:
             self._page.overlay.remove(self._save_picker)
             self._page.update()
 
-    # ── Cascada: Docente → Periodo → Plan → Semestre ──────────
+    # ── Cascada: Grado → Docente → Periodo → Plan → Semestre ──
+
+    def _on_grado_cambiado(self, _) -> None:
+        """Al seleccionar grado carga los docentes con horarios en ese grado."""
+        id_nivel = self._dd_grado.value
+
+        for dd in (self._dd_docente, self._dd_periodo, self._dd_plan, self._dd_semestre):
+            dd.value = None
+            dd.options = []
+            dd.disabled = True
+
+        if id_nivel:
+            docentes_nivel = [
+                d for d in self._docentes
+                if len(self._service.obtener_periodos_por_docente_nivel(
+                    d.id, int(id_nivel))) > 0
+            ]
+            self._dd_docente.options = [
+                _opcion(str(d.id), d.nombre) for d in docentes_nivel
+            ]
+            self._dd_docente.disabled = (len(docentes_nivel) == 0)
+
+        if self.page:
+            for dd in (self._dd_docente, self._dd_periodo, self._dd_plan, self._dd_semestre):
+                dd.update()
 
     def _on_docente_cambiado(self, _) -> None:
-        """Al seleccionar docente, cargar solo sus periodos."""
-        id_doc = self._dd_docente.value
+        """Carga periodos del docente filtrados por grado seleccionado."""
+        id_nivel = self._dd_grado.value
+        id_doc   = self._dd_docente.value
 
-        # Resetear los 3 dependientes completamente
-        self._dd_periodo.value = None
-        self._dd_periodo.options = []
-        self._dd_periodo.disabled = True
+        for dd in (self._dd_periodo, self._dd_plan, self._dd_semestre):
+            dd.value = None
+            dd.options = []
+            dd.disabled = True
 
-        self._dd_plan.value = None
-        self._dd_plan.options = []
-        self._dd_plan.disabled = True
-
-        self._dd_semestre.value = None
-        self._dd_semestre.options = []
-        self._dd_semestre.disabled = True
-
-        if id_doc:
-            periodos = self._service.obtener_periodos_por_docente(int(id_doc))
-            self._dd_periodo.options = [
-                _opcion(str(p.id), p.nombre) for p in periodos
-            ]
+        if id_doc and id_nivel:
+            periodos = self._service.obtener_periodos_por_docente_nivel(
+                int(id_doc), int(id_nivel))
+            self._dd_periodo.options = [_opcion(str(p.id), p.nombre) for p in periodos]
             self._dd_periodo.disabled = (len(periodos) == 0)
 
         if self.page:
-            self._dd_periodo.update()
-            self._dd_plan.update()
-            self._dd_semestre.update()
+            for dd in (self._dd_periodo, self._dd_plan, self._dd_semestre):
+                dd.update()
 
     def _on_periodo_cambiado(self, _) -> None:
-        """Al seleccionar periodo, cargar planes del docente en ese periodo."""
-        id_doc = self._dd_docente.value
-        id_per = self._dd_periodo.value
+        """Carga planes del grado+docente+periodo seleccionados."""
+        id_nivel = self._dd_grado.value
+        id_doc   = self._dd_docente.value
+        id_per   = self._dd_periodo.value
 
-        # Resetear plan y semestre
-        self._dd_plan.value = None
-        self._dd_plan.options = []
-        self._dd_plan.disabled = True
+        for dd in (self._dd_plan, self._dd_semestre):
+            dd.value = None
+            dd.options = []
+            dd.disabled = True
 
-        self._dd_semestre.value = None
-        self._dd_semestre.options = []
-        self._dd_semestre.disabled = True
-
-        if id_doc and id_per:
-            planes = self._service.obtener_planes_por_docente_periodo(
-                int(id_doc), int(id_per))
-            self._dd_plan.options = [
-                _opcion(str(p.id), p.nombre) for p in planes
-            ]
+        if id_doc and id_per and id_nivel:
+            planes = self._service.obtener_planes_por_docente_nivel_periodo(
+                int(id_doc), int(id_nivel), int(id_per))
+            self._dd_plan.options = [_opcion(str(p.id), p.nombre) for p in planes]
             self._dd_plan.disabled = (len(planes) == 0)
 
         if self.page:
-            self._dd_plan.update()
-            self._dd_semestre.update()
+            for dd in (self._dd_plan, self._dd_semestre):
+                dd.update()
 
     def _on_plan_cambiado(self, _) -> None:
-        """Al seleccionar plan, cargar semestres del docente en ese plan+periodo."""
+        """Carga semestres y obtiene el membrete del plan seleccionado."""
         id_doc  = self._dd_docente.value
         id_per  = self._dd_periodo.value
         id_plan = self._dd_plan.value
 
-        # Resetear semestre siempre
         self._dd_semestre.value = None
         self._dd_semestre.options = []
         self._dd_semestre.disabled = True
@@ -443,11 +454,12 @@ class HorarioDocenteView(ft.Container):
             sems = self._service.obtener_semestres_por_docente_plan_periodo(
                 int(id_doc), int(id_plan), int(id_per))
             self._dd_semestre.options = [
-                _opcion(str(s.id), f"Semestre {s.numero}")
-                for s in sems
+                _opcion(str(s.id), f"Semestre {s.numero}") for s in sems
             ]
-            # FIX: habilitar solo si hay semestres disponibles
             self._dd_semestre.disabled = (len(sems) == 0)
+
+            # Membrete del plan seleccionado
+            self._ruta_membrete = self._service.obtener_ruta_membrete(int(id_plan))
 
         if self.page:
             self._dd_semestre.update()
@@ -455,12 +467,14 @@ class HorarioDocenteView(ft.Container):
     # ── Generar ───────────────────────────────────────────────
 
     def _generar(self) -> None:
-        """Valida, consulta la BD, genera la previsualización y el Word."""
-        id_doc  = self._dd_docente.value
-        id_per  = self._dd_periodo.value
-        id_plan = self._dd_plan.value
-        id_sem  = self._dd_semestre.value
+        id_nivel = self._dd_grado.value
+        id_doc   = self._dd_docente.value
+        id_per   = self._dd_periodo.value
+        id_plan  = self._dd_plan.value
+        id_sem   = self._dd_semestre.value
 
+        if not id_nivel:
+            self._msg("Selecciona un grado."); return
         if not id_doc:
             self._msg("Selecciona un docente."); return
         if not id_per:
@@ -470,7 +484,8 @@ class HorarioDocenteView(ft.Container):
         if not id_sem:
             self._msg("Selecciona un semestre."); return
         if not self._ruta_membrete:
-            self._msg("Selecciona un membrete al crear un plan de estudios."); return
+            self._msg("El plan seleccionado no tiene membrete. "
+                      "Asígnale uno desde 'Crear plan de estudios'."); return
 
         resumen = self._service.obtener_horarios_docente(
             id_docente=int(id_doc),
@@ -481,7 +496,7 @@ class HorarioDocenteView(ft.Container):
 
         if not resumen.filas:
             self._msg("No se encontraron horarios para el docente "
-                       "con los filtros seleccionados.")
+                      "con los filtros seleccionados.")
             return
 
         self._resumen = resumen
@@ -489,17 +504,14 @@ class HorarioDocenteView(ft.Container):
         self._msg("¡Horario generado correctamente!")
 
     def _construir_preview(self) -> None:
-        """Construye la tabla de previsualización en la UI."""
         if not self._resumen:
             return
 
         filas = self._resumen.filas
-
         franjas = sorted(set(
             (f.hora_inicio, f.hora_fin) for f in filas
             if f.hora_inicio and f.hora_fin
         ))
-
         mapa: dict[tuple, str] = {}
         for f in filas:
             if f.dia and f.hora_inicio:
@@ -509,26 +521,21 @@ class HorarioDocenteView(ft.Container):
         for (hi, hf) in franjas:
             hora_txt = f"{hi} - {hf}"
             cells = [
-                ft.DataCell(ft.Text(
-                    hora_txt, size=11,
-                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO,
-                    weight=ft.FontWeight.W_600)),
+                ft.DataCell(ft.Text(hora_txt, size=11,
+                                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO,
+                                    weight=ft.FontWeight.W_600)),
             ]
             for dia in _DIAS:
                 materia = mapa.get((dia, hi), "")
                 cell_content = ft.Container(
-                    content=ft.Text(
-                        materia, size=10,
-                        font_family=Fuentes.CAMPOS,
-                        color=Colores.TEXTO,
-                    ),
+                    content=ft.Text(materia, size=10,
+                                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO),
                     bgcolor="#B5CBF7" if materia else None,
                     padding=ft.padding.all(4),
                     border_radius=2,
                     width=120,
                 )
                 cells.append(ft.DataCell(cell_content))
-
             rows.append(ft.DataRow(cells=cells))
 
         self._tabla_prev.rows = rows
@@ -548,17 +555,12 @@ class HorarioDocenteView(ft.Container):
     # ── Ver Documento (popup) ─────────────────────────────────
 
     def _ver_documento(self) -> None:
-        """Genera PDF temporal con membrete y muestra vista previa en popup."""
         if not self._resumen:
             self._msg("Primero genera el horario.")
             return
 
-
-        ruta_pdf = os.path.join(
-            tempfile.gettempdir(),
-            f"preview_docente_{id(self)}.pdf",
-        )
-
+        ruta_pdf = os.path.join(tempfile.gettempdir(),
+                                 f"preview_docente_{id(self)}.pdf")
         try:
             GeneradorPdfDocente(
                 resumen=self._resumen,
@@ -570,7 +572,7 @@ class HorarioDocenteView(ft.Container):
             return
 
         try:
-            import fitz  # PyMuPDF
+            import fitz
             doc_pdf = fitz.open(ruta_pdf)
             page_pdf = doc_pdf[0]
             pix = page_pdf.get_pixmap(dpi=150)
@@ -581,35 +583,20 @@ class HorarioDocenteView(ft.Container):
             dlg = ft.AlertDialog(
                 modal=True,
                 bgcolor=Colores.BLANCO,
-                title=ft.Text(
-                    "Vista previa - Horario Docente",
-                    font_family=Fuentes.TITULO,
-                    size=18,
-                    color=Colores.AZUL_PRIMARIO,
-                ),
+                title=ft.Text("Vista previa - Horario Docente",
+                               font_family=Fuentes.TITULO, size=18,
+                               color=Colores.AZUL_PRIMARIO),
                 content=ft.Container(
                     content=ft.Column(
-                        controls=[
-                            ft.Image(
-                                src=img_path,
-                                fit=ft.ImageFit.CONTAIN,
-                                width=550,
-                            ),
-                        ],
+                        controls=[ft.Image(src=img_path, fit=ft.ImageFit.CONTAIN, width=550)],
                         scroll=ft.ScrollMode.AUTO,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    width=600,
-                    height=550,
+                    width=600, height=550,
                     border=ft.border.all(1, Colores.AZUL_PRIMARIO),
                     border_radius=8,
                 ),
-                actions=[
-                    ft.TextButton(
-                        "Cerrar",
-                        on_click=lambda _: self._page.close(dlg),
-                    ),
-                ],
+                actions=[ft.TextButton("Cerrar", on_click=lambda _: self._page.close(dlg))],
                 actions_alignment=ft.MainAxisAlignment.END,
                 shape=ft.RoundedRectangleBorder(radius=10),
             )
@@ -622,12 +609,9 @@ class HorarioDocenteView(ft.Container):
     # ── Exportar ──────────────────────────────────────────────
 
     def _exportar(self) -> None:
-        """Abre diálogo para elegir dónde guardar el .pdf."""
         if not self._resumen:
             self._msg("Primero genera el horario.")
             return
-
-
         nombre_doc = self._resumen.nombre_docente.replace(" ", "_")
         self._save_picker.save_file(
             dialog_title="Guardar horario docente",
@@ -636,7 +620,6 @@ class HorarioDocenteView(ft.Container):
         )
 
     def _on_save_result(self, e: ft.FilePickerResultEvent) -> None:
-        """Callback del FilePicker — genera el .pdf en la ruta elegida."""
         if not e.path or not self._resumen:
             return
         ruta = e.path
@@ -652,31 +635,26 @@ class HorarioDocenteView(ft.Container):
         except Exception as ex:
             self._msg(f"Error al exportar: {ex}")
 
-
-    # ── Limpiar ───────────────────────────────────────────────
+    # ── Limpiar — estado inicial completo ─────────────────────
 
     def _limpiar(self) -> None:
-        """Resetea todos los campos y oculta la previsualización."""
-        # Resetear docente y recargar sus opciones originales
-        self._dd_docente.value = None
-        self._dd_docente.options = [
-            _opcion(str(d.id), d.nombre) for d in self._docentes
+        """Regresa al estado inicial: Grado con sus opciones, el resto
+        deshabilitado y con hint_text (options vacío)."""
+        # Refrescar niveles por si cambiaron
+        self._niveles = list(self._service.obtener_niveles_con_docente())
+
+        self._dd_grado.value = None
+        self._dd_grado.options = [
+            _opcion(str(n["id"]), n["nombre"]) for n in self._niveles
         ]
 
-        # Resetear cascada completa con opciones vacías
-        self._dd_periodo.value = None
-        self._dd_periodo.options = []
-        self._dd_periodo.disabled = True
+        for dd in (self._dd_docente, self._dd_periodo, self._dd_plan, self._dd_semestre):
+            dd.value = None
+            dd.options = []
+            dd.disabled = True
 
-        self._dd_plan.value = None
-        self._dd_plan.options = []
-        self._dd_plan.disabled = True
-
-        self._dd_semestre.value = None
-        self._dd_semestre.options = []
-        self._dd_semestre.disabled = True
-
-        # Limpiar resultado
+        # Limpiar membrete y resultado
+        self._ruta_membrete = None
         self._resumen = None
 
         # Ocultar panel de previsualización
@@ -688,10 +666,9 @@ class HorarioDocenteView(ft.Container):
         self._panel_prev.visible = False
 
         if self.page:
-            self._dd_docente.update()
-            self._dd_periodo.update()
-            self._dd_plan.update()
-            self._dd_semestre.update()
+            for dd in (self._dd_grado, self._dd_docente, self._dd_periodo,
+                       self._dd_plan, self._dd_semestre):
+                dd.update()
             self._tabla_prev.update()
             self._lbl_prev.update()
             self._btn_ver.update()

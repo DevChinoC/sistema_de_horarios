@@ -405,6 +405,87 @@ class HorarioService:
         finally:
             session.close()
 
+    # ── Cascada por Grado – Horario Docente ───────────────────
+
+    def obtener_niveles_con_docente(self) -> list[dict]:
+        """Niveles que tienen al menos un plan con horarios de docentes."""
+        session = self._db.get_session()
+        try:
+            rows = HorarioRepository(session).obtener_niveles_con_docente()
+            return [{"id": n.id_nivel, "nombre": n.nombre} for n in rows]
+        finally:
+            session.close()
+
+    def obtener_periodos_por_docente_nivel(
+        self, id_docente: int, id_nivel: int,
+    ) -> list:
+        """Periodos del docente filtrados por nivel."""
+        session = self._db.get_session()
+        try:
+            rows = HorarioRepository(session).obtener_periodos_por_docente_nivel(
+                id_docente, id_nivel)
+            return [PeriodoDTO(id=p.id_periodo, nombre=p.nombre) for p in rows]
+        finally:
+            session.close()
+
+    def obtener_planes_por_docente_nivel_periodo(
+        self, id_docente: int, id_nivel: int, id_periodo: int,
+    ) -> list[PlanDTO]:
+        """Planes del docente en el nivel/periodo dados."""
+        session = self._db.get_session()
+        try:
+            rows = HorarioRepository(session).obtener_planes_por_docente_nivel_periodo(
+                id_docente, id_nivel, id_periodo)
+            return [PlanDTO(id=p.id_plan, nombre=p.nombre, id_nivel=p.id_nivel)
+                    for p in rows]
+        finally:
+            session.close()
+
+    # ── Cascada por Grado – Historial ────────────────────────
+
+    def obtener_niveles_con_historial(self) -> list[dict]:
+        """Niveles que tienen al menos un registro en el historial."""
+        session = self._db.get_session()
+        try:
+            rows = HorarioRepository(session).obtener_niveles_con_historial()
+            return [{"id": n.id_nivel, "nombre": n.nombre} for n in rows]
+        finally:
+            session.close()
+
+    def obtener_periodos_por_nivel(self, id_nivel: int) -> list:
+        """Periodos que tienen historial en el nivel dado."""
+        session = self._db.get_session()
+        try:
+            rows = HorarioRepository(session).obtener_periodos_por_nivel(id_nivel)
+            return [PeriodoDTO(id=p.id_periodo, nombre=p.nombre) for p in rows]
+        finally:
+            session.close()
+
+    def obtener_planes_por_nivel_periodo(
+        self, id_nivel: int, id_periodo: int,
+    ) -> list[PlanDTO]:
+        """Planes que tienen historial en el nivel/periodo dados."""
+        session = self._db.get_session()
+        try:
+            rows = HorarioRepository(session).obtener_planes_por_nivel_periodo(
+                id_nivel, id_periodo)
+            return [PlanDTO(id=p.id_plan, nombre=p.nombre, id_nivel=p.id_nivel)
+                    for p in rows]
+        finally:
+            session.close()
+
+    def obtener_semestres_por_nivel_plan_periodo(
+        self, id_nivel: int, id_plan: int, id_periodo: int,
+    ) -> list:
+        """Semestres con horarios en el nivel/plan/periodo dados."""
+        session = self._db.get_session()
+        try:
+            rows = HorarioRepository(session).obtener_semestres_por_nivel_plan_periodo(
+                id_nivel, id_plan, id_periodo)
+            return [SemestreDTO(id=s.id_semestre, numero=s.numero) for s in rows]
+        finally:
+            session.close()
+
     def obtener_nombre_docente(self, id_docente: int) -> str:
         """Retorna el nombre de un docente por su ID."""
         session = self._db.get_session()

@@ -428,7 +428,7 @@ class TablaMaterias(ft.Column):
     ANCHO_TABLA  = 520
     ALTURA_FILAS = 200
 
-    def __init__(self, tipos: list[dict]) -> None:
+    def __init__(self, tipos: list[dict], altura: int = 200) -> None:
         self._tipos = tipos
         self._filas: list[FilaMateriaControl] = []
 
@@ -466,7 +466,7 @@ class TablaMaterias(ft.Column):
         area_scroll = ft.Container(
             content=self._col_filas,
             width=self.ANCHO_TABLA,
-            height=self.ALTURA_FILAS,
+            height=altura,
             bgcolor=Colores.BLANCO,
             border=ft.border.only(
                 left=ft.BorderSide(1, Colores.BORDE),

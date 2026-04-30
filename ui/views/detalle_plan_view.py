@@ -871,6 +871,7 @@ class DetallePlanView(ft.Column):
             content=ft.Row(
                 controls=[col1, col2],
                 spacing=50,
+                alignment = ft.MainAxisAlignment.CENTER,
                 vertical_alignment=ft.CrossAxisAlignment.START,
             ),
         )

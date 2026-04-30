@@ -11,6 +11,8 @@ Cambios respecto a la versión anterior:
 """
 
 import flet as ft
+import datetime
+import calendar
 import threading
 from typing import Callable
 
@@ -24,6 +26,245 @@ from ui.components.plan_components import (
 # Anchos fijos para los campos superiores (compactos)
 _ANCHO_NOMBRE = 300
 _ANCHO_FECHA  = 190
+
+
+# ════════════════════════════════════════════════════════════
+# Calendario inline – se agrega a page.overlay para flotar
+# ════════════════════════════════════════════════════════════
+_DIAS_SEMANA = ["Dom", "Lun", "Mar", "Miér", "Jue", "Vier", "Sáb"]
+_MESES = [
+    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+]
+
+
+class _CalendarioOverlay(ft.Container):
+    """Calendario flotante que vive en page.overlay.
+
+    Al abrirse muestra un fondo semitransparente que cierra el calendario
+    al hacer clic fuera.  Todo el panel recibe clics correctamente porque
+    page.overlay está por encima de cualquier layout.
+    """
+
+    _ANCHO_CAL = 280
+
+    def __init__(self, on_fecha: Callable[[datetime.date], None]) -> None:
+        self._on_fecha = on_fecha
+        hoy = datetime.date.today()
+        self._mes = hoy.month
+        self._anio = hoy.year
+
+        # ── Dropdown de mes ───────────────────────────────────
+        self._dd_mes = ft.Dropdown(
+            value=_MESES[self._mes - 1],
+            options=[
+                ft.dropdown.Option(
+                    key=m, text=m,
+                    text_style=ft.TextStyle(
+                        size=12, color=Colores.TEXTO,
+                        font_family=Fuentes.CAMPOS),
+                    alignment=ft.alignment.center_left,
+                ) for m in _MESES
+            ],
+            on_change=self._cambiar_mes_dd,
+            width=140,
+            text_size=13,
+            dense=True,
+            item_height=36,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
+            border_color="transparent",
+            fill_color="transparent",
+            bgcolor=Colores.BLANCO,
+            color=Colores.TEXTO,
+            max_menu_height=250,
+            text_style=ft.TextStyle(
+                font_family=Fuentes.CAMPOS, weight=ft.FontWeight.W_600),
+        )
+
+        # ── Año con flechas ───────────────────────────────────
+        self._lbl_anio = ft.Text(
+            str(self._anio), size=13, weight=ft.FontWeight.W_600,
+            color=Colores.AZUL_PRIMARIO, font_family=Fuentes.CAMPOS,
+        )
+        cabecera = ft.Row(
+            controls=[
+                self._dd_mes,
+                ft.Row(
+                    controls=[
+                        ft.IconButton(
+                            icon=ft.Icons.CHEVRON_LEFT, icon_size=18,
+                            icon_color=Colores.AZUL_PRIMARIO,
+                            on_click=self._anio_ant,
+                            style=ft.ButtonStyle(padding=ft.padding.all(0)),
+                            width=28, height=28,
+                        ),
+                        self._lbl_anio,
+                        ft.IconButton(
+                            icon=ft.Icons.CHEVRON_RIGHT, icon_size=18,
+                            icon_color=Colores.AZUL_PRIMARIO,
+                            on_click=self._anio_sig,
+                            style=ft.ButtonStyle(padding=ft.padding.all(0)),
+                            width=28, height=28,
+                        ),
+                    ],
+                    spacing=2,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+        # ── Encabezados Dom–Sáb ───────────────────────────────
+        dias_header = ft.Row(
+            controls=[
+                ft.Container(
+                    width=36, height=24, alignment=ft.alignment.center,
+                    content=ft.Text(
+                        d, size=11, weight=ft.FontWeight.W_600,
+                        color=Colores.AZUL_PRIMARIO,
+                        font_family=Fuentes.CAMPOS,
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                ) for d in _DIAS_SEMANA
+            ],
+            spacing=2, alignment=ft.MainAxisAlignment.CENTER,
+        )
+
+        # ── Grilla de días ────────────────────────────────────
+        self._grid_dias = ft.Column(spacing=2)
+
+        # ── Panel del calendario ──────────────────────────────
+        panel_cal = ft.Container(
+            content=ft.Column(
+                controls=[cabecera, dias_header, self._grid_dias],
+                spacing=6,
+            ),
+            width=self._ANCHO_CAL,
+            padding=ft.padding.all(12),
+            bgcolor=Colores.BLANCO,
+            border=ft.border.all(1.5, Colores.AZUL_PRIMARIO),
+            border_radius=ft.border_radius.all(10),
+            shadow=ft.BoxShadow(
+                spread_radius=1, blur_radius=8,
+                color="#1A000000", offset=ft.Offset(0, 2),
+            ),
+        )
+
+        # ── Fondo semitransparente (click-to-close) ───────────
+        fondo = ft.Container(
+            expand=True,
+            bgcolor="#05000000",
+            on_click=lambda _: self.cerrar(),
+        )
+
+        # ── Layout: fondo + panel posicionado arriba a la derecha ─
+        super().__init__(
+            content=ft.Stack(
+                controls=[
+                    fondo,
+                    ft.Container(
+                        content=panel_cal,
+                        top=120,
+                        right=80,
+                    ),
+                ],
+            ),
+            expand=True,
+            visible=False,
+        )
+        self._construir_grid()
+
+    # ── Grid ──────────────────────────────────────────────────
+    def _construir_grid(self) -> None:
+        self._grid_dias.controls.clear()
+        cal = calendar.Calendar(firstweekday=6)   # Domingo primero
+        semanas = cal.monthdayscalendar(self._anio, self._mes)
+
+        # Días del mes anterior (para rellenar primera semana)
+        prev_m = 12 if self._mes == 1 else self._mes - 1
+        prev_a = self._anio - 1 if self._mes == 1 else self._anio
+        _, dias_prev = calendar.monthrange(prev_a, prev_m)
+
+        dia_next = 1
+        for i, semana in enumerate(semanas):
+            celdas = []
+            for j, dia in enumerate(semana):
+                if dia == 0:
+                    if i == 0:
+                        ceros = semana[:j + 1].count(0)
+                        dia_show = dias_prev - (semana.count(0) - ceros)
+                    else:
+                        dia_show = dia_next
+                        dia_next += 1
+                    celdas.append(ft.Container(
+                        width=36, height=30,
+                        alignment=ft.alignment.center,
+                        content=ft.Text(
+                            str(dia_show), size=12,
+                            color=Colores.TEXTO_MUTED,
+                            font_family=Fuentes.CAMPOS,
+                            text_align=ft.TextAlign.CENTER),
+                    ))
+                else:
+                    celdas.append(ft.Container(
+                        width=36, height=30,
+                        alignment=ft.alignment.center,
+                        border_radius=4,
+                        ink=True,
+                        on_click=lambda _, d=dia: self._seleccionar_dia(d),
+                        content=ft.Text(
+                            str(dia), size=12,
+                            color=Colores.TEXTO,
+                            font_family=Fuentes.CAMPOS,
+                            text_align=ft.TextAlign.CENTER),
+                    ))
+            self._grid_dias.controls.append(
+                ft.Row(controls=celdas, spacing=2,
+                       alignment=ft.MainAxisAlignment.CENTER))
+
+    def _refrescar(self) -> None:
+        self._dd_mes.value = _MESES[self._mes - 1]
+        self._lbl_anio.value = str(self._anio)
+        self._construir_grid()
+        if self.page:
+            self.update()
+
+    # ── Navegación ────────────────────────────────────────────
+    def _cambiar_mes_dd(self, e) -> None:
+        self._mes = _MESES.index(e.control.value) + 1
+        self._refrescar()
+
+    def _anio_ant(self, _) -> None:
+        self._anio -= 1
+        self._refrescar()
+
+    def _anio_sig(self, _) -> None:
+        self._anio += 1
+        self._refrescar()
+
+    # ── Selección ─────────────────────────────────────────────
+    def _seleccionar_dia(self, dia: int) -> None:
+        fecha = datetime.date(self._anio, self._mes, dia)
+        self.cerrar()
+        self._on_fecha(fecha)
+
+    # ── Abrir / Cerrar ────────────────────────────────────────
+    def abrir(self) -> None:
+        self.visible = True
+        if self.page:
+            self.update()
+
+    def cerrar(self) -> None:
+        self.visible = False
+        if self.page:
+            self.update()
+
+    def toggle(self) -> None:
+        if self.visible:
+            self.cerrar()
+        else:
+            self.abrir()
 
 
 
@@ -88,6 +329,10 @@ class CrearPlanView(ft.Container):
             text_style=ft.TextStyle(color=Colores.TEXTO, font_family=Fuentes.CAMPOS),
         )
 
+        self._calendario = _CalendarioOverlay(
+            on_fecha=self._on_fecha_seleccionada,
+        )
+
         self._campo_fecha = ft.TextField(
             hint_text="DD/MM/AA",
             hint_style=ft.TextStyle(
@@ -99,11 +344,20 @@ class CrearPlanView(ft.Container):
             content_padding=ft.padding.symmetric(horizontal=10, vertical=10),
             text_size=13,
             width=_ANCHO_FECHA,
+            read_only=True,
+            on_click=self._toggle_calendario,
             text_style=ft.TextStyle(color=Colores.TEXTO, font_family=Fuentes.CAMPOS),
+            suffix=ft.IconButton(
+                icon=ft.Icons.CALENDAR_MONTH,
+                icon_color=Colores.AZUL_PRIMARIO,
+                icon_size=20,
+                on_click=self._toggle_calendario,
+                style=ft.ButtonStyle(padding=ft.padding.all(0)),
+            ),
         )
 
         # Tabla: fila inicial vacía (hint_text, sin texto prefijado)
-        self._tabla = TablaMaterias(tipos=tipos)
+        self._tabla = TablaMaterias(tipos=tipos, altura= 300)
         self._tabla.agregar_fila(nombre="", id_tipo=0, semestre=0)
 
         # ── Selector de membrete ─────────────────────────────
@@ -193,6 +447,8 @@ class CrearPlanView(ft.Container):
                     bloque_membrete,
                     ft.Container(height=8),
                     self._tabla,
+                       
+                    
                 ],
                 spacing=0,
             ),
@@ -235,19 +491,32 @@ class CrearPlanView(ft.Container):
     # ── Ciclo de vida ─────────────────────────────────────────
 
     def did_mount(self) -> None:
-        """Registra el FilePicker en page.overlay una vez que el control
-        forma parte del árbol de la página."""
+        """Registra FilePicker y calendario en page.overlay."""
         if self._file_picker not in self._page.overlay:
             self._page.overlay.append(self._file_picker)
-            self._page.update()
+        if self._calendario not in self._page.overlay:
+            self._page.overlay.append(self._calendario)
+        self._page.update()
 
     def will_unmount(self) -> None:
-        """Limpia el FilePicker del overlay al desmontar la vista."""
+        """Limpia FilePicker y calendario del overlay."""
         if self._file_picker in self._page.overlay:
             self._page.overlay.remove(self._file_picker)
-            self._page.update()
+        if self._calendario in self._page.overlay:
+            self._page.overlay.remove(self._calendario)
+        self._page.update()
 
     # ── Callbacks ─────────────────────────────────────────────
+
+    def _toggle_calendario(self, _) -> None:
+        """Muestra u oculta el calendario flotante."""
+        self._calendario.toggle()
+
+    def _on_fecha_seleccionada(self, fecha: datetime.date) -> None:
+        """Callback cuando el usuario elige una fecha en el calendario."""
+        self._campo_fecha.value = fecha.strftime("%d/%m/%y")
+        if self.page:
+            self._campo_fecha.update()
 
     def _on_grado_cambiado(self, nombre: str, id_nivel: int | None) -> None:
         if id_nivel is not None:

@@ -34,11 +34,28 @@ class HorarioService:
             session.close()
 
     def obtener_ruta_membrete(self, id_plan: int) -> str | None:
-        """Retorna la ruta del membrete guardada en el plan, o None."""
+        """Retorna la ruta del membrete del plan.
+
+        Prioridad:
+        1. Ruta local en la carpeta ui/membretes/<id_plan>/ (almacenada en BD).
+        2. Si la ruta en BD existe en disco → la devuelve.
+        3. Si no → intenta resolverla desde la carpeta del proyecto.
+        4. None si no hay membrete.
+        """
+        from ui.membretes.gestor_membrete import GestorMembrete
         session = self._db.get_session()
         try:
             plan = HorarioRepository(session).obtener_plan(id_plan)
-            return plan.ruta_membrete if plan else None
+            if not plan:
+                return None
+            ruta_bd = plan.ruta_membrete
+            # Verificar si la ruta guardada en BD sigue existiendo
+            if ruta_bd:
+                import os
+                if os.path.isfile(ruta_bd):
+                    return ruta_bd
+            # Intentar resolución desde la carpeta del proyecto
+            return GestorMembrete(id_plan).obtener_ruta()
         finally:
             session.close()
 

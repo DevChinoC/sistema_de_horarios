@@ -1,3 +1,15 @@
+"""crear_plan_view.py
+Vista 'Crear plan de estudios' — panel embebido dentro de PlanesView.
+
+Cambios respecto a la versión anterior:
+  1. Ya no tiene barra de navegación propia; se embebe dentro de
+     PlanesView y comparte la BarraTabs de esa vista.
+  2. Botón "Cancelar" eliminado; solo queda "Guardar" centrado.
+  3. El membrete se guarda dentro del proyecto en
+     ui/membretes/<id_plan>/<membrete>.<ext>.
+     La ruta local (dentro del proyecto) es lo que se persiste en BD.
+"""
+
 import flet as ft
 import threading
 from typing import Callable
@@ -5,8 +17,8 @@ from typing import Callable
 from application.services.plan_estudios_service import PlanEstudiosService
 from application.dto.plan_estudios_dto import CrearPlanDTO, FilaMateriaDTO
 from ui.components.plan_components import (
-    Colores, Fuentes, CabeceraPlan, SelectorGrado, TablaMaterias,
-    BotonPrimario, DialogoConfirmacion,
+    Colores, Fuentes, SelectorGrado, TablaMaterias,
+    BotonPrimario,
 )
 
 # Anchos fijos para los campos superiores (compactos)
@@ -14,12 +26,15 @@ _ANCHO_NOMBRE = 300
 _ANCHO_FECHA  = 190
 
 
-class CrearPlanView(ft.Column):
-    """Vista 'Crear plan de estudios'.
 
-    Toda la UI se agrupa en un bloque de ancho fijo (igual al de la tabla,
-    520px) que se centra horizontalmente en la ventana. Esto garantiza que
-    Grado, campos Nombre/Fecha, tabla y botones estén perfectamente alineados.
+class CrearPlanView(ft.Container):
+    """Vista 'Crear plan de estudios' — panel embebido en PlanesView.
+
+    • Se integra como panel dentro del área de contenido de PlanesView,
+      compartiendo la misma BarraTabs que las demás pestañas.
+    • Solo tiene el botón 'Guardar' (sin Cancelar), centrado.
+    • El membrete se guarda en ui/membretes/<id_plan>/ dentro del
+      proyecto; la ruta local se persiste en BD.
 
     Reglas de negocio:
     • Plan engloba TODAS las LIES de la BD.
@@ -90,14 +105,13 @@ class CrearPlanView(ft.Column):
         self._tabla = TablaMaterias(tipos=tipos)
         self._tabla.agregar_fila(nombre="", id_tipo=0, semestre=0)
 
-        # ── Selector de membrete ─────────────────────────────────
+        # ── Selector de membrete ─────────────────────────────
         self._lbl_membrete = ft.Text(
             "Sin membrete cargado", size=12,
             color=Colores.TEXTO_MUTED, font_family=Fuentes.CAMPOS,
             italic=True,
         )
-        self._file_picker = ft.FilePicker(
-            on_result=self._on_membrete_resultado)
+        self._file_picker = ft.FilePicker(on_result=self._on_membrete_resultado)
         page.overlay.append(self._file_picker)
 
         btn_membrete = ft.ElevatedButton(
@@ -120,8 +134,10 @@ class CrearPlanView(ft.Column):
 
         bloque_membrete = ft.Column(
             controls=[
-                ft.Text("Membrete:", size=13, weight=ft.FontWeight.W_600,
-                        color=Colores.TEXTO, font_family=Fuentes.CAMPOS),
+                ft.Text(
+                    "Membrete:", size=13, weight=ft.FontWeight.W_600,
+                    color=Colores.TEXTO, font_family=Fuentes.CAMPOS,
+                ),
                 ft.Row(
                     controls=[btn_membrete, self._lbl_membrete],
                     spacing=10,
@@ -133,31 +149,31 @@ class CrearPlanView(ft.Column):
 
         # ════════════════════ LAYOUT ═════════════════════════
 
-        # 1) Header fijo
-        header = CabeceraPlan(on_cerrar=self._cerrar)
-
-        # 2) Etiquetas + campos
+        # 1) Etiquetas + campos
         bloque_nombre = ft.Column(
             controls=[
-                ft.Text("Nombre del plan:", size=13,
-                        weight=ft.FontWeight.W_600, color=Colores.TEXTO,
-                        font_family=Fuentes.CAMPOS),
+                ft.Text(
+                    "Nombre del plan:", size=13,
+                    weight=ft.FontWeight.W_600, color=Colores.TEXTO,
+                    font_family=Fuentes.CAMPOS,
+                ),
                 self._campo_nombre,
             ],
             spacing=4,
         )
         bloque_fecha = ft.Column(
             controls=[
-                ft.Text("Fecha de inicio", size=13,
-                        weight=ft.FontWeight.W_600, color=Colores.TEXTO,
-                        font_family=Fuentes.CAMPOS),
+                ft.Text(
+                    "Fecha de inicio", size=13,
+                    weight=ft.FontWeight.W_600, color=Colores.TEXTO,
+                    font_family=Fuentes.CAMPOS,
+                ),
                 self._campo_fecha,
             ],
             spacing=4,
         )
 
-        # 3) Bloque de ancho fijo = ancho de la tabla (520px).
-        #    Al centrarlo en pantalla, TODO queda alineado: grado, campos y tabla.
+        # 2) Bloque de ancho fijo centrado (= ancho de la tabla 520px)
         ancho_bloque = TablaMaterias.ANCHO_TABLA
 
         bloque_fijo = ft.Container(
@@ -182,7 +198,6 @@ class CrearPlanView(ft.Column):
             ),
         )
 
-        # Centrar el bloque fijo en el espacio disponible
         contenido = ft.Container(
             content=bloque_fijo,
             bgcolor=Colores.BLANCO,
@@ -190,7 +205,7 @@ class CrearPlanView(ft.Column):
             expand=True,
         )
 
-        # 4) Botones centrados al mismo ancho que el bloque
+        # 3) Solo botón "Guardar", centrado
         barra_botones = ft.Container(
             bgcolor=Colores.BLANCO,
             padding=ft.padding.only(top=20, bottom=28),
@@ -200,19 +215,21 @@ class CrearPlanView(ft.Column):
                 content=ft.Row(
                     controls=[
                         BotonPrimario(texto="Guardar", on_click=self._guardar),
-                        BotonPrimario(texto="Cancelar",
-                                      on_click=self._confirmar_cancelar,
-                                      color=Colores.ROJO),
                     ],
-                    alignment=ft.MainAxisAlignment.SPACE_AROUND,
+                    alignment=ft.MainAxisAlignment.END,
                 ),
             ),
         )
 
         super().__init__(
-            controls=[header, contenido, barra_botones],
-            spacing=0,
+            content=ft.Column(
+                controls=[contenido, barra_botones],
+                spacing=0,
+                expand=True,
+                scroll=ft.ScrollMode.AUTO,
+            ),
             expand=True,
+            bgcolor=Colores.BLANCO,
         )
 
     # ── Callbacks ─────────────────────────────────────────────
@@ -227,23 +244,7 @@ class CrearPlanView(ft.Column):
             self._nivel_map[resultado["nombre"]] = resultado["id"]
         return resultado
 
-    def _cerrar(self, _=None) -> None:
-        if self._on_cancelado:
-            self._on_cancelado()
 
-    def _confirmar_cancelar(self, _=None) -> None:
-        self._page.open(DialogoConfirmacion(
-            page=self._page,
-            on_confirmar=self._ejecutar_cancelar,
-        ))
-
-    def _ejecutar_cancelar(self) -> None:
-        if self._on_cancelado:
-            self._on_cancelado()
-
-    def _limpiar_vista(self) -> None:
-        self._page.controls.clear()
-        self._page.update()
 
     def _guardar(self, _) -> None:
         nombre   = (self._campo_nombre.value or "").strip()
@@ -278,6 +279,8 @@ class CrearPlanView(ft.Column):
                 FilaMateriaDTO(f["nombre_materia"], f["id_tipo"], f["numero_semestre"])
                 for f in filas
             ],
+            # ruta_membrete = ruta temporal del picker; el service la copiará
+            # a ui/membretes/<id_plan>/ y guardará la ruta local en BD.
             ruta_membrete=self._ruta_membrete,
         )
         exito, msg = self._service.crear_plan(dto)
@@ -291,15 +294,14 @@ class CrearPlanView(ft.Column):
 
         overlay = ft.Container(
             expand=True,
-            bgcolor="#AA000000",          # fondo semitransparente negro
+            bgcolor="#AA000000",
             alignment=ft.alignment.center,
             content=ft.Column(
                 alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=12,
                 controls=[
-                    ft.Icon(ft.Icons.CHECK_CIRCLE,
-                            color="#22C55E", size=100),
+                    ft.Icon(ft.Icons.CHECK_CIRCLE, color="#22C55E", size=100),
                     ft.Text(
                         "¡Plan guardado!",
                         size=20,
@@ -311,7 +313,6 @@ class CrearPlanView(ft.Column):
             ),
         )
 
-        # Agregar overlay encima de todo
         self._page.overlay.append(overlay)
         self._page.update()
 
@@ -330,17 +331,17 @@ class CrearPlanView(ft.Column):
         if e.files:
             self._ruta_membrete = e.files[0].path
             nombre = e.files[0].name
-            self._lbl_membrete.value = nombre
-            self._lbl_membrete.color = Colores.TEXTO
+            self._lbl_membrete.value  = nombre
+            self._lbl_membrete.color  = Colores.TEXTO
             self._lbl_membrete.italic = False
         else:
             self._ruta_membrete = None
-            self._lbl_membrete.value = "Sin membrete cargado"
-            self._lbl_membrete.color = Colores.TEXTO_MUTED
+            self._lbl_membrete.value  = "Sin membrete cargado"
+            self._lbl_membrete.color  = Colores.TEXTO_MUTED
             self._lbl_membrete.italic = True
         if self.page:
             self._lbl_membrete.update()
-        # Notificar al Navegador
+        # Notificar al exterior (p. ej. para preview o tests)
         if self._on_membrete_seleccionado:
             self._on_membrete_seleccionado(self._ruta_membrete)
 

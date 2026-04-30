@@ -2,12 +2,14 @@ import flet as ft
 from typing import Callable
 
 from application.services.planes_service import PlanesService
+from application.services.plan_estudios_service import PlanEstudiosService
 from application.services.horario_service import HorarioService
 from application.dto.planes_dto import NivelDTO, PlanDTO
 from ui.components.plan_components import Colores, Fuentes, BotonPrimario
 from ui.components.puerta_animada import PuertaAnimada
 from ui.views.horario_docente_view import HorarioDocenteView
 from ui.views.historial_view import HistorialView
+from ui.views.crear_plan_view import CrearPlanView
 
 
 # ─────────────────────────────────────────────────────────────
@@ -64,7 +66,7 @@ class BarraTabs(ft.Row):
 
         super().__init__(
             controls=self._construir(),
-            spacing=10,
+            spacing=35,
         )
 
     def _construir(self) -> list[ft.Control]:
@@ -73,6 +75,7 @@ class BarraTabs(ft.Row):
             activo = tab == self._activo
             btn = ft.OutlinedButton(
                 text=tab,
+                width=200,
                 on_click=lambda e, t=tab: self._seleccionar(t),
                 style=ft.ButtonStyle(
                     shape=ft.RoundedRectangleBorder(radius=10),
@@ -189,33 +192,53 @@ class PanelPlanesEstudios(ft.Container):
             spacing=10,
         )
 
+        # Imagen/logo institucional a la izquierda dentro del contenedor
+        logo = ft.Image(
+            src="logo_miidt.jpeg",
+            width=280,
+            fit=ft.ImageFit.CONTAIN,
+            filter_quality=ft.FilterQuality.HIGH,
+            opacity=0.5
+        )
 
-        contenido = ft.Column(
+        # Columna izquierda: logo
+        col_logo = ft.Container(
+            content=logo,
+            alignment=ft.alignment.center_left,
+            expand=True
+        )
+
+        # Columna derecha: dropdowns + puerta
+        col_derecha = ft.Column(
             controls=[
                 ft.Container(height=20),
                 fila_grado,
                 ft.Container(height=10),
                 fila_plan,
                 ft.Container(height=20),
-                ft.Container(height=20),
-
                 ft.Container(
                     content=self._puerta,
                     margin=ft.margin.only(left=250),
                 ),
-
                 ft.Container(height=30),
             ],
             spacing=0,
             horizontal_alignment=ft.CrossAxisAlignment.START,
+            expand=True,
+        )
+
+        contenido = ft.Row(
+            controls=[ col_derecha, col_logo],
+            spacing=0,
+            expand=True,
         )
 
         super().__init__(
             content=contenido,
             bgcolor=Colores.BLANCO,
             border=ft.border.all(1.5, Colores.BORDE),
-            border_radius=8,
-            padding=ft.padding.symmetric(horizontal=40, vertical=10),
+            border_radius=9,
+            padding=ft.padding.symmetric(horizontal=40, vertical=120),
             margin=ft.margin.symmetric(horizontal=20, vertical=10),
             expand=True,
         )
@@ -295,14 +318,15 @@ class PlanesView(ft.Column):
 
     Tabs disponibles:
     • Planes de estudios → PanelPlanesEstudios (BD real)
-    • Crear plan         → llama on_ir_crear_plan
-    • Horario por docente / Historial → pendientes de implementar
+    • Crear plan         → CrearPlanView (panel embebido)
+    • Horario por docente → HorarioDocenteView (panel embebido)
+    • Historial          → HistorialView (panel embebido)
 
     Parámetros
     ──────────
     on_cerrar        : cierra la aplicación
-    on_ir_crear_plan : navega a CrearPlanView
     on_abrir_plan    : recibe PlanDTO cuando el usuario abre la puerta
+    plan_service     : servicio para crear planes (pestaña Crear plan)
     """
 
     def __init__(
@@ -310,17 +334,17 @@ class PlanesView(ft.Column):
         page: ft.Page,
         service: PlanesService,
         on_cerrar: Callable,
-        on_ir_crear_plan: Callable,
         on_abrir_plan: Callable[[PlanDTO], None],
         horario_service: HorarioService | None = None,
+        plan_service: PlanEstudiosService | None = None,
         on_abrir_plan_por_id: Callable[[int], None] | None = None,
         get_ruta_membrete: Callable[[], str | None] | None = None,
     ) -> None:
         self._page              = page
         self._service           = service
-        self._on_ir_crear_plan  = on_ir_crear_plan
         self._on_abrir_plan     = on_abrir_plan
         self._horario_svc       = horario_service
+        self._plan_svc          = plan_service
         self._on_abrir_plan_por_id = on_abrir_plan_por_id
         self._get_ruta_membrete = get_ruta_membrete
 
@@ -337,17 +361,6 @@ class PlanesView(ft.Column):
             on_abrir_plan=self._on_abrir_plan,
         )
 
-        # Logo institucional debajo del panel
-        self._logo_fondo = ft.Container(
-            content=ft.Image(
-                src="logo_miidt.jpeg",
-                width=300,
-                height=300,
-                fit=ft.ImageFit.CONTAIN,
-            ),
-            alignment=ft.alignment.center,
-        )
-
         self._area_contenido = ft.Column(
             controls=[
                 ft.Container(
@@ -355,7 +368,6 @@ class PlanesView(ft.Column):
                     alignment=ft.alignment.center,
                     expand=True,
                 ),
-                self._logo_fondo,
             ],
             spacing=0,
             expand=True,
@@ -385,7 +397,24 @@ class PlanesView(ft.Column):
 
     def _cambiar_tab(self, tab: str) -> None:
         if tab == "Crear plan":
-            self._on_ir_crear_plan()
+            if self._plan_svc:
+                lies_lista = self._plan_svc.obtener_lies()
+                lies_activa = lies_lista[0] if lies_lista else {"id": 1, "nombre": "TICs"}
+                vista_crear = CrearPlanView(
+                    page=self._page,
+                    service=self._plan_svc,
+                    lies_activa=lies_activa,
+                    on_guardado=lambda: self._tabs.seleccionar_tab("Planes de estudios"),
+                )
+                self._area_contenido.controls = [
+                    ft.Container(
+                        content=vista_crear,
+                        alignment=ft.alignment.center,
+                        expand=True,
+                    ),
+                ]
+                if self.page:
+                    self._area_contenido.update()
         elif tab == "Planes de estudios":
             self._area_contenido.controls = [
                 ft.Container(
@@ -393,7 +422,6 @@ class PlanesView(ft.Column):
                     alignment=ft.alignment.center,
                     expand=True,
                 ),
-                self._logo_fondo,
             ]
             self._panel_planes.cargar_niveles()
             if self.page:

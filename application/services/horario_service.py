@@ -604,6 +604,34 @@ class HorarioService:
         finally:
             session.close()
 
+    def obtener_horarios_de_plan_generado(
+        self, id_plan_generado: int,
+    ) -> list[HorarioRegistradoDTO]:
+        """Retorna todos los horarios de un plan_generado específico."""
+        session = self._db.get_session()
+        try:
+            rows = HorarioRepository(session).obtener_horarios_de_plan_generado(
+                id_plan_generado)
+            result = []
+            for idx, r in enumerate(rows, start=1):
+                result.append(HorarioRegistradoDTO(
+                    id_horario=r.id_horario,
+                    clave=str(idx).zfill(3),
+                    semestre=f"Semestre {r.semestre}" if r.semestre > 0 else "Optativa",
+                    unidad=r.unidad or "",
+                    docente=r.docente or "",
+                    aulas=r.aula or "",
+                    periodo=r.periodo or "",
+                    total_horas=r.total_horas or 0,
+                    dia=r.dia or "",
+                    hora_inicio=r.hora_inicio.strftime("%H:%M") if r.hora_inicio else "",
+                    hora_fin=r.hora_fin.strftime("%H:%M") if r.hora_fin else "",
+                    numero_semestre=r.semestre if r.semestre else 0,
+                ))
+            return result
+        finally:
+            session.close()
+
     def obtener_id_plan_de_plan_generado(self, id_plan_generado: int) -> int | None:
         """Retorna el id_plan asociado a un plan_generado."""
         session = self._db.get_session()

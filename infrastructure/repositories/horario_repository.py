@@ -603,6 +603,40 @@ class HorarioRepository:
             .all()
         )
 
+    def obtener_horarios_de_plan_generado(self, id_plan_generado: int) -> list[tuple]:
+        """Retorna horarios de un plan_generado con info para la tabla de edición."""
+        return (
+            self._s.query(
+                HorarioModel.id_horario,
+                SemestreModel.numero.label("semestre"),
+                DetalleSemestreModel.nombre_posicion.label("unidad"),
+                DocenteModel.nombre.label("docente"),
+                AulaModel.nombre.label("aula"),
+                PeriodoEscolarModel.nombre.label("periodo"),
+                HorarioModel.total_horas,
+                HorarioModel.dia,
+                HorarioModel.hora_inicio,
+                HorarioModel.hora_fin,
+            )
+            .join(PlanGeneradoModel,
+                  PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
+            .join(AsignacionMateriaModel,
+                  AsignacionMateriaModel.id_asignacion == HorarioModel.id_asignacion)
+            .join(DetalleSemestreModel,
+                  DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
+            .join(SemestreModel,
+                  SemestreModel.id_semestre == DetalleSemestreModel.id_semestre)
+            .join(DocenteModel,
+                  DocenteModel.id_docente == HorarioModel.id_docente)
+            .join(AulaModel,
+                  AulaModel.id_aula == HorarioModel.id_aula)
+            .join(PeriodoEscolarModel,
+                  PeriodoEscolarModel.id_periodo == PlanGeneradoModel.id_periodo)
+            .filter(HorarioModel.id_plan_generado == id_plan_generado)
+            .order_by(HorarioModel.id_horario)
+            .all()
+        )
+
     def eliminar_plan_generado(self, id_plan_generado: int) -> None:
         """Elimina todos los horarios de un plan_generado y luego el plan_generado."""
         self._s.query(HorarioModel).filter_by(

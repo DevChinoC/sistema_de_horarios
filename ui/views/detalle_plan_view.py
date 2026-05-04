@@ -504,6 +504,7 @@ class DetallePlanView(ft.Column):
         service: HorarioService,
         on_volver: Callable,
         ruta_membrete: str | None = None,
+        id_plan_generado: int | None = None,
     ) -> None:
         self._page          = page
         self._id_plan       = id_plan
@@ -511,6 +512,8 @@ class DetallePlanView(ft.Column):
         self._on_volver     = on_volver
         # Cargar membrete desde la BD (prioritario) o parámetro de respaldo
         self._ruta_membrete = service.obtener_ruta_membrete(id_plan) or ruta_membrete
+        # ID del plan generado para precargar horarios desde historial
+        self._id_plan_generado_precarga = id_plan_generado
 
         # ── Estado de edición ─────────────────────────────────
         self._editando_id: int | None = None   # id_horario en edición
@@ -1013,7 +1016,41 @@ class DetallePlanView(ft.Column):
         if self._save_picker not in self._page.overlay:
             self._page.overlay.append(self._save_picker)
             self._page.update()
-        # Tabla empieza vacía — no se carga historial anterior
+        # Si viene desde historial, precargar los horarios del plan generado
+        if self._id_plan_generado_precarga is not None:
+            self._precargar_horarios(self._id_plan_generado_precarga)
+
+    # ── Precarga de horarios desde historial ─────────────────
+
+    def _precargar_horarios(self, id_plan_generado: int) -> None:
+        """Precarga los IDs de horarios de un plan_generado en la sesión
+        para que aparezcan en la tabla con editar/eliminar funcionales."""
+        registros = self._service.obtener_horarios_de_plan_generado(id_plan_generado)
+        if not registros:
+            return
+        # Agregar todos los IDs a la sesión
+        for r in registros:
+            self._ids_sesion.add(r.id_horario)
+        # Auto-seleccionar el primer semestre que tenga horarios
+        if self._semestres and not self._dd_semestre.value:
+            # Buscar qué semestres tienen horarios precargados
+            sems_con_datos = {r.numero_semestre for r in registros if r.numero_semestre > 0}
+            sem_target = None
+            for s in self._semestres:
+                if s.numero in sems_con_datos:
+                    sem_target = s
+                    break
+            if sem_target is None:
+                sem_target = self._semestres[0]
+            self._dd_semestre.value = str(sem_target.id)
+            if self.page:
+                self._dd_semestre.update()
+            self._on_semestre_cambiado(None)
+            # Restaurar _ids_sesion ya que _on_semestre_cambiado la limpia
+            for r in registros:
+                self._ids_sesion.add(r.id_horario)
+        # Recargar tabla con los horarios precargados
+        self._recargar_tabla()
 
     # ── Builders de opciones ──────────────────────────────────
 

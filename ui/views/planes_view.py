@@ -337,7 +337,7 @@ class PlanesView(ft.Column):
         on_abrir_plan: Callable[[PlanDTO], None],
         horario_service: HorarioService | None = None,
         plan_service: PlanEstudiosService | None = None,
-        on_abrir_plan_por_id: Callable[[int], None] | None = None,
+        on_abrir_plan_por_id: Callable[[int, int], None] | None = None,
         get_ruta_membrete: Callable[[], str | None] | None = None,
     ) -> None:
         self._page              = page
@@ -449,7 +449,7 @@ class PlanesView(ft.Column):
                 service=self._horario_svc or HorarioService(),
                 on_editar_plan=self._on_abrir_plan_por_id
                     if self._on_abrir_plan_por_id
-                    else lambda _: None,
+                    else lambda _a, _b: None,
                 ruta_membrete=ruta_membrete,
             )
             self._area_contenido.controls = [

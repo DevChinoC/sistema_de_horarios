@@ -116,13 +116,15 @@ class Navegador:
         """Vista de detalle y asignación de horarios de un plan."""
         self._limpiar_y_abrir_detalle(plan.id)
 
-    def ir_a_detalle_plan_por_id(self, id_plan: int) -> None:
-        """Navega a DetallePlanView usando directamente un id_plan."""
-        self._limpiar_y_abrir_detalle(id_plan)
+    def ir_a_detalle_plan_por_id(self, id_plan: int, id_plan_generado: int | None = None) -> None:
+        """Navega a DetallePlanView usando directamente un id_plan.
+        Si se pasa id_plan_generado, precarga los horarios de ese plan generado.
+        """
+        self._limpiar_y_abrir_detalle(id_plan, id_plan_generado)
 
     # ── Helpers privados ─────────────────────────────────────
 
-    def _limpiar_y_abrir_detalle(self, id_plan: int) -> None:
+    def _limpiar_y_abrir_detalle(self, id_plan: int, id_plan_generado: int | None = None) -> None:
         self._page.controls.clear()
         self._page.overlay.clear()
         vista = DetallePlanView(
@@ -131,5 +133,6 @@ class Navegador:
             service=self._horario_svc,
             on_volver=self.ir_a_planes,
             ruta_membrete=None,  # se resuelve internamente por HorarioService
+            id_plan_generado=id_plan_generado,
         )
         self._page.add(vista)

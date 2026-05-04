@@ -70,7 +70,7 @@ class HistorialView(ft.Container):
         self,
         page: ft.Page,
         service: HorarioService,
-        on_editar_plan: Callable[[int], None],
+        on_editar_plan: Callable[[int, int], None],
         ruta_membrete: str | None = None,
     ) -> None:
         self._page           = page
@@ -569,11 +569,12 @@ class HistorialView(ft.Container):
     # ── Editar ────────────────────────────────────────────────
 
     def _editar(self, id_plan_generado: int) -> None:
+        """Navega a DetallePlanView con los horarios del plan generado precargados."""
         id_plan = self._service.obtener_id_plan_de_plan_generado(id_plan_generado)
         if id_plan is None:
             self._msg("No se encontró el plan asociado.")
             return
-        self._on_editar_plan(id_plan)
+        self._on_editar_plan(id_plan, id_plan_generado)
 
     # ── Eliminar ──────────────────────────────────────────────
 

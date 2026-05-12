@@ -97,6 +97,7 @@ class HistorialView(ft.Container):
             hint_text="Seleccionar grado",
             options=[],
             on_change=self._on_grado_cambiado,
+            menu_height=150,
             **_dd_kw(200),
         )
 
@@ -106,6 +107,7 @@ class HistorialView(ft.Container):
             options=[],
             disabled=True,
             on_change=self._on_periodo_cambiado,
+            menu_height=150,
             **_dd_kw(180),
         )
 
@@ -115,6 +117,7 @@ class HistorialView(ft.Container):
             options=[],
             disabled=True,
             on_change=self._on_plan_cambiado,
+            menu_height=150,
             **_dd_kw(220),
         )
 
@@ -124,6 +127,7 @@ class HistorialView(ft.Container):
             options=[],
             disabled=True,
             on_change=self._on_filtro_cambiado,
+            menu_height=150,
             **_dd_kw(180),
         )
 

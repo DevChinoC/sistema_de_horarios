@@ -141,6 +141,7 @@ class PanelPlanesEstudios(ft.Container):
             color=Colores.TEXTO,
             text_size=13,
             width=200,
+            menu_height=150,
             text_style=ft.TextStyle(
                 color=Colores.TEXTO, font_family=Fuentes.CAMPOS),
             on_change=self._on_grado_cambiado,
@@ -160,6 +161,7 @@ class PanelPlanesEstudios(ft.Container):
             color=Colores.TEXTO,
             text_size=13,
             width=200,
+            menu_height=150,
             text_style=ft.TextStyle(
                 color=Colores.TEXTO, font_family=Fuentes.CAMPOS),
             on_change=self._on_plan_cambiado,

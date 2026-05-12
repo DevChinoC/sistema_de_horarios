@@ -380,6 +380,7 @@ class _FilaHorario(ft.Row):
         self.dd_dia = ft.Dropdown(
             hint_text="Seleccionar dia",
             options=[_opcion(d, d) for d in self._DIAS],
+            menu_height=150,
             **_dd_kw(_W_DIA),
         )
         self.hora_inicio = _ScrollTimePicker(on_change=on_change)
@@ -420,6 +421,7 @@ class _DropdownConNuevo(ft.Stack):
             hint_text=hint_text,
             options=opciones_iniciales,
             on_change=self._on_dd_change,
+            menu_height=150,
             **_dd_kw(width),
         )
         self._tf = ft.TextField(
@@ -483,6 +485,149 @@ class _DropdownConNuevo(ft.Stack):
     def _on_tf_blur(self, _) -> None:
         if self._tf.visible and not (self._tf.value or "").strip():
             self.restaurar_dd(None)
+
+
+# ─────────────────────────────────────────────────────────────
+# Buscador de unidad de aprendizaje con lista de resultados
+# ─────────────────────────────────────────────────────────────
+class _BuscadorUnidad(ft.Column):
+    """Campo de búsqueda con lista scrollable de coincidencias.
+
+    Al escribir, filtra las opciones cargadas y muestra los
+    resultados debajo del TextField en un ListView con scroll.
+    Al hacer clic en un resultado se invoca on_seleccionar(key, text).
+    """
+
+    _MAX_RESULTADOS_VISIBLES = 150   # altura máxima de la lista (px)
+
+    def __init__(
+        self,
+        width: int,
+        on_seleccionar: Callable[[str, str], None],
+        on_cerrar: Callable,
+    ) -> None:
+        self._on_seleccionar = on_seleccionar
+        self._on_cerrar = on_cerrar
+        self._opciones: list[tuple[str, str]] = []  # (key, text)
+
+        self._tf = ft.TextField(
+            on_change=self._filtrar,
+            prefix=ft.Icon(ft.Icons.SEARCH,
+                           color=Colores.AZUL_PRIMARIO, size=18),
+            suffix=ft.Container(
+                content=ft.Icon(ft.Icons.CLOSE,
+                                color=Colores.ROJO, size=18),
+                on_click=lambda _: self._on_cerrar(_),
+                tooltip="Cerrar búsqueda",
+                ink=True,
+                padding=ft.padding.all(2),
+            ),
+            **_tf_kw(width, hint="Escriba para filtrar…"),
+        )
+
+        self._lista = ft.ListView(
+            spacing=0,
+            height=self._MAX_RESULTADOS_VISIBLES,
+            padding=ft.padding.all(0),
+        )
+
+        self._contenedor_lista = ft.Container(
+            content=self._lista,
+            border=ft.border.all(1, Colores.BORDE),
+            border_radius=ft.border_radius.only(
+                bottom_left=6, bottom_right=6),
+            bgcolor=Colores.BLANCO,
+            width=width,
+            visible=False,
+        )
+
+        super().__init__(
+            controls=[self._tf, self._contenedor_lista],
+            spacing=0,
+            width=width,
+            visible=False,
+        )
+
+    # ── API pública ───────────────────────────────────────────
+
+    def set_opciones(self, opciones: list[tuple[str, str]]) -> None:
+        """Establece las opciones disponibles para filtrar."""
+        self._opciones = opciones
+
+    def activar(self) -> None:
+        """Muestra el buscador, limpia el campo y enfoca."""
+        self.visible = True
+        self._tf.value = ""
+        self._lista.controls = []
+        self._contenedor_lista.visible = False
+        if self.page:
+            self.update()
+            self._tf.focus()
+
+    def desactivar(self) -> None:
+        """Oculta el buscador y limpia resultados."""
+        self.visible = False
+        self._tf.value = ""
+        self._lista.controls = []
+        self._contenedor_lista.visible = False
+        if self.page:
+            self.update()
+
+    def set_width(self, width: int) -> None:
+        """Actualiza el ancho del buscador y sus controles internos."""
+        self.width = width
+        self._tf.width = width
+        self._contenedor_lista.width = width
+
+    # ── Filtrado interno ──────────────────────────────────────
+
+    def _filtrar(self, _) -> None:
+        """Filtra las opciones según lo escrito y actualiza la lista."""
+        texto = (self._tf.value or "").strip().lower()
+        if not texto:
+            self._lista.controls = []
+            self._contenedor_lista.visible = False
+        else:
+            coincidencias = [
+                (key, text) for key, text in self._opciones
+                if texto in text.lower()
+            ]
+            self._lista.controls = [
+                self._crear_item(key, text)
+                for key, text in coincidencias
+            ]
+            self._contenedor_lista.visible = len(coincidencias) > 0
+        if self.page:
+            self._lista.update()
+            self._contenedor_lista.update()
+
+    def _crear_item(self, key: str, text: str) -> ft.Container:
+        """Crea un ítem clickable para la lista de resultados."""
+        return ft.Container(
+            content=ft.Text(
+                text, size=13, color=_NEGRO,
+                font_family=Fuentes.CAMPOS,
+            ),
+            padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            on_click=lambda _, k=key, t=text: self._seleccionar(k, t),
+            ink=True,
+            on_hover=self._hover_item,
+            border=ft.border.only(
+                bottom=ft.BorderSide(0.5, Colores.BORDE)),
+        )
+
+    def _hover_item(self, e) -> None:
+        """Resalta el ítem al pasar el cursor."""
+        e.control.bgcolor = (
+            ft.Colors.with_opacity(0.08, Colores.AZUL_PRIMARIO)
+            if e.data == "true" else None
+        )
+        if self.page:
+            e.control.update()
+
+    def _seleccionar(self, key: str, text: str) -> None:
+        """Invoca el callback de selección con la opción elegida."""
+        self._on_seleccionar(key, text)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -585,6 +730,7 @@ class DetallePlanView(ft.Column):
             options=[_opcion(str(s.id), f"Semestre {s.numero}")
                      for s in self._semestres],
             on_change=self._on_semestre_cambiado,
+            menu_height=150,
             **_dd_kw(_W_SEM),
         )
 
@@ -669,52 +815,48 @@ class DetallePlanView(ft.Column):
         )
 
         # ════════════════════ COL 2 ════════════════════════════
-        # -- Unidad de aprendizaje: dropdown con lupa y búsqueda --
-        # La lupa aparece como ícono PREFIX (izquierda) del dropdown.
-        # Al hacer clic en ella se muestra el TextField de filtrado.
+        # -- Unidad de aprendizaje: dropdown con lupa y buscador --
+        # La lupa se coloca junto a la etiqueta (fuera del dropdown)
+        # para que el on_click funcione correctamente en Flet 0.28.
         self._unidad_all_opts: list[ft.dropdown.Option] = []  # copia maestra
         self._buscando_unidad = False
 
-        self._btn_buscar_unidad = ft.Container(
-            content=ft.Icon(
-                ft.Icons.SEARCH,
-                color=Colores.AZUL_PRIMARIO,
-                size=20,
-            ),
+        self._btn_buscar_unidad = ft.IconButton(
+            icon=ft.Icons.SEARCH,
+            icon_color=Colores.AZUL_PRIMARIO,
+            icon_size=18,
             on_click=self._toggle_buscar_unidad,
-            tooltip="Haz clic para buscar por nombre",
-            ink=True,
-            padding=ft.padding.all(4),
+            tooltip="Buscar unidad de aprendizaje",
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=6),
+                padding=ft.padding.all(4),
+                bgcolor=ft.Colors.with_opacity(0.08, Colores.AZUL_PRIMARIO),
+            ),
+        )
+        # Etiqueta + lupa en la misma fila
+        self._lbl_unidad_row = ft.Row(
+            controls=[
+                _lbl("Unidad de aprendizaje"),
+                self._btn_buscar_unidad,
+            ],
+            spacing=4,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
         self._dd_unidad = ft.Dropdown(
             hint_text="Seleccionar unidad",
             options=[], disabled=True,
             on_change=self._on_unidad_cambiada,
-            # Lupa al inicio (prefix) — clic la activa
-            prefix=self._btn_buscar_unidad,
-            max_menu_height=160,   # scroll cuando hay muchas materias
+            menu_height=150,   # menú compacto con scroll
             **_dd_kw(_W_UA),
         )
-        self._tf_buscar_unidad = ft.TextField(
-            visible=False,
-            on_change=self._on_buscar_unidad_change,
-            on_blur=self._on_buscar_unidad_blur,
-            prefix=ft.Icon(ft.Icons.SEARCH, color=Colores.AZUL_PRIMARIO, size=18),
-            suffix=ft.Container(
-                content=ft.Icon(
-                    ft.Icons.CLOSE,
-                    color=Colores.ROJO,
-                    size=18,
-                ),
-                on_click=self._toggle_buscar_unidad,
-                tooltip="Cerrar búsqueda",
-                ink=True,
-                padding=ft.padding.all(2),
-            ),
-            **_tf_kw(_W_UA, hint="Escriba para filtrar…"),
+        # Buscador con lista de resultados scrollable (POO)
+        self._buscador_unidad = _BuscadorUnidad(
+            width=_W_UA,
+            on_seleccionar=self._on_unidad_seleccionada,
+            on_cerrar=self._toggle_buscar_unidad,
         )
         self._unidad_stack = ft.Stack(
-            controls=[self._dd_unidad, self._tf_buscar_unidad],
+            controls=[self._dd_unidad, self._buscador_unidad],
             width=_W_UA,
         )
 
@@ -818,13 +960,13 @@ class DetallePlanView(ft.Column):
         # UA ocupa el ancho completo (UA + gap + Aulas)
         _W_UA_WIDE = _W_UA + 50 + _W_AULA
         self._dd_unidad.width        = _W_UA_WIDE
-        self._tf_buscar_unidad.width = _W_UA_WIDE
+        self._buscador_unidad.set_width(_W_UA_WIDE)
         self._unidad_stack.width     = _W_UA_WIDE
 
         col2 = ft.Column(
             spacing=4,
             controls=[
-                _lbl("Unidad de aprendizaje"),
+                self._lbl_unidad_row,
                 self._unidad_stack,
                 ft.Container(height=8),
                 # Tipo | Aulas — en la misma fila
@@ -1108,15 +1250,20 @@ class DetallePlanView(ft.Column):
         self._dd_unidad.disabled = not unidades
         self._tipo_txt.value     = ""
 
+        # Sincronizar opciones con el buscador
+        self._buscador_unidad.set_opciones([
+            (str(u.id_asignacion), u.nombre) for u in unidades
+        ])
+
         # Resetear búsqueda si estaba activa
         if self._buscando_unidad:
             self._buscando_unidad = False
-            self._tf_buscar_unidad.visible = False
-            self._tf_buscar_unidad.value = ""
+            self._buscador_unidad.desactivar()
             self._dd_unidad.visible = True
+            self._btn_buscar_unidad.visible = True
             if self.page:
-                self._tf_buscar_unidad.update()
                 self._dd_unidad.update()
+                self._btn_buscar_unidad.update()
 
         # Limpiar tabla y sesión al cambiar de semestre
         self._tabla.rows = []
@@ -1145,46 +1292,46 @@ class DetallePlanView(ft.Column):
     # ── Buscar unidad de aprendizaje ──────────────────────────
 
     def _toggle_buscar_unidad(self, _) -> None:
-        """Alterna entre dropdown y campo de búsqueda en el mismo espacio."""
+        """Alterna entre dropdown+lupa y buscador con lista de resultados."""
         self._buscando_unidad = not self._buscando_unidad
         if self._buscando_unidad:
-            # Mostrar TextField, ocultar Dropdown
+            # Ocultar Dropdown + lupa, activar buscador
             self._dd_unidad.visible = False
-            self._tf_buscar_unidad.visible = True
-            self._tf_buscar_unidad.value = ""
+            self._btn_buscar_unidad.visible = False
+            self._buscador_unidad.activar()
             if self.page:
                 self._dd_unidad.update()
-                self._tf_buscar_unidad.update()
-                self._tf_buscar_unidad.focus()
+                self._btn_buscar_unidad.update()
         else:
-            # Restaurar Dropdown, ocultar TextField
-            self._tf_buscar_unidad.visible = False
+            # Restaurar Dropdown + lupa, desactivar buscador
+            self._buscador_unidad.desactivar()
             self._dd_unidad.visible = True
+            self._btn_buscar_unidad.visible = True
             self._dd_unidad.options = list(self._unidad_all_opts)
             self._dd_unidad.value = None
             if self.page:
-                self._tf_buscar_unidad.update()
                 self._dd_unidad.update()
+                self._btn_buscar_unidad.update()
 
-    def _on_buscar_unidad_blur(self, _) -> None:
-        """Cierra búsqueda si el campo pierde foco sin texto."""
-        if self._buscando_unidad and not (self._tf_buscar_unidad.value or "").strip():
-            self._toggle_buscar_unidad(None)
-
-    def _on_buscar_unidad_change(self, _) -> None:
-        """Filtra las opciones del dropdown conforme el usuario escribe."""
-        texto = (self._tf_buscar_unidad.value or "").strip().lower()
-        if not texto:
-            self._dd_unidad.options = list(self._unidad_all_opts)
-        else:
-            self._dd_unidad.options = [
-                opt for opt in self._unidad_all_opts
-                if texto in (opt.text or "").lower()
-            ]
-        self._dd_unidad.value = None
+    def _on_unidad_seleccionada(self, key: str, text: str) -> None:
+        """Callback del buscador: selecciona la unidad y cierra la búsqueda."""
+        # Cerrar búsqueda
+        self._buscando_unidad = False
+        self._buscador_unidad.desactivar()
         self._dd_unidad.visible = True
+        self._btn_buscar_unidad.visible = True
+        self._dd_unidad.options = list(self._unidad_all_opts)
+        self._dd_unidad.value = key
         if self.page:
             self._dd_unidad.update()
+            self._btn_buscar_unidad.update()
+        # Actualizar el campo de tipo
+        u = next((u for u in self._unidades
+                   if str(u.id_asignacion) == key), None)
+        if u:
+            self._tipo_txt.value = u.tipo
+            if self.page:
+                self._tipo_txt.update()
 
     # ── Crear aula nueva ──────────────────────────────────────
 

@@ -76,7 +76,7 @@ class _CalendarioOverlay(ft.Container):
             fill_color="transparent",
             bgcolor=Colores.BLANCO,
             color=Colores.TEXTO,
-            max_menu_height=250,
+            menu_height=250,
             text_style=ft.TextStyle(
                 font_family=Fuentes.CAMPOS, weight=ft.FontWeight.W_600),
         )

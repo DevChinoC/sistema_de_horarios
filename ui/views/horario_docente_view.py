@@ -147,6 +147,7 @@ class HorarioDocenteView(ft.Container):
             hint_text="Seleccionar grado",
             options=[_opcion(str(n["id"]), n["nombre"]) for n in self._niveles],
             on_change=self._on_grado_cambiado,
+            menu_height=150,
             **_dd_kw(_W_DD),
         )
 
@@ -156,6 +157,7 @@ class HorarioDocenteView(ft.Container):
             options=[],
             disabled=True,
             on_change=self._on_docente_cambiado,
+            menu_height=150,
             **_dd_kw(_W_DD),
         )
 
@@ -165,6 +167,7 @@ class HorarioDocenteView(ft.Container):
             options=[],
             disabled=True,
             on_change=self._on_periodo_cambiado,
+            menu_height=150,
             **_dd_kw(_W_DD),
         )
 
@@ -174,6 +177,7 @@ class HorarioDocenteView(ft.Container):
             options=[],
             disabled=True,
             on_change=self._on_plan_cambiado,
+            menu_height=150,
             **_dd_kw(_W_DD),
         )
 
@@ -182,6 +186,7 @@ class HorarioDocenteView(ft.Container):
             hint_text="Seleccionar semestre",
             options=[],
             disabled=True,
+            menu_height=150,
             **_dd_kw(_W_DD),
         )
 

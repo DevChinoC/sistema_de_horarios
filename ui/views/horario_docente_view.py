@@ -400,6 +400,9 @@ class HorarioDocenteView(ft.Container):
             dd.options = []
             dd.disabled = True
 
+        # Refrescar la lista de docentes desde BD
+        self._docentes = list(self._service.obtener_docentes())
+
         if id_nivel:
             docentes_nivel = [
                 d for d in self._docentes
@@ -410,6 +413,8 @@ class HorarioDocenteView(ft.Container):
                 _opcion(str(d.id), d.nombre) for d in docentes_nivel
             ]
             self._dd_docente.disabled = (len(docentes_nivel) == 0)
+
+        self._ocultar_preview()
 
         if self.page:
             for dd in (self._dd_docente, self._dd_periodo, self._dd_plan, self._dd_semestre):
@@ -431,6 +436,8 @@ class HorarioDocenteView(ft.Container):
             self._dd_periodo.options = [_opcion(str(p.id), p.nombre) for p in periodos]
             self._dd_periodo.disabled = (len(periodos) == 0)
 
+        self._ocultar_preview()
+
         if self.page:
             for dd in (self._dd_periodo, self._dd_plan, self._dd_semestre):
                 dd.update()
@@ -451,6 +458,8 @@ class HorarioDocenteView(ft.Container):
                 int(id_doc), int(id_nivel), int(id_per))
             self._dd_plan.options = [_opcion(str(p.id), p.nombre) for p in planes]
             self._dd_plan.disabled = (len(planes) == 0)
+
+        self._ocultar_preview()
 
         if self.page:
             for dd in (self._dd_plan, self._dd_semestre):
@@ -477,8 +486,29 @@ class HorarioDocenteView(ft.Container):
             # Membrete del plan seleccionado
             self._ruta_membrete = self._service.obtener_ruta_membrete(int(id_plan))
 
+        self._ocultar_preview()
+
         if self.page:
             self._dd_semestre.update()
+
+    # ── Ocultar previsualización al cambiar filtros ───────────
+
+    def _ocultar_preview(self) -> None:
+        """Limpia el resultado previo y oculta el panel de previsualización."""
+        self._resumen = None
+        self._tabla_prev.rows = []
+        self._tabla_prev.visible = False
+        self._lbl_prev.visible = False
+        self._btn_ver.visible = False
+        self._btn_exportar.visible = False
+        self._panel_prev.visible = False
+
+        if self.page:
+            self._tabla_prev.update()
+            self._lbl_prev.update()
+            self._btn_ver.update()
+            self._btn_exportar.update()
+            self._panel_prev.update()
 
     # ── Generar ───────────────────────────────────────────────
 

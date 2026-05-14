@@ -325,7 +325,8 @@ class HorarioRepository:
         self, id_docente: int,
     ) -> list[PeriodoEscolarModel]:
         """Periodos donde el docente tiene al menos un horario registrado."""
-        ids = (
+        id_list = [
+            r[0] for r in
             self._s.query(PeriodoEscolarModel.id_periodo)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_periodo == PeriodoEscolarModel.id_periodo)
@@ -333,11 +334,13 @@ class HorarioRepository:
                   HorarioModel.id_plan_generado == PlanGeneradoModel.id_plan_generado)
             .filter(HorarioModel.id_docente == id_docente)
             .distinct()
-            .scalar_subquery()
-        )
+            .all()
+        ]
+        if not id_list:
+            return []
         return (
             self._s.query(PeriodoEscolarModel)
-            .filter(PeriodoEscolarModel.id_periodo.in_(ids))
+            .filter(PeriodoEscolarModel.id_periodo.in_(id_list))
             .order_by(PeriodoEscolarModel.nombre)
             .all()
         )
@@ -346,7 +349,8 @@ class HorarioRepository:
         self, id_docente: int, id_periodo: int,
     ) -> list[PlanEstudiosModel]:
         """Planes donde el docente tiene horarios en el periodo dado."""
-        ids = (
+        id_list = [
+            r[0] for r in
             self._s.query(PlanGeneradoModel.id_plan)
             .join(HorarioModel,
                   HorarioModel.id_plan_generado == PlanGeneradoModel.id_plan_generado)
@@ -355,11 +359,13 @@ class HorarioRepository:
                 PlanGeneradoModel.id_periodo == id_periodo,
             )
             .distinct()
-            .scalar_subquery()
-        )
+            .all()
+        ]
+        if not id_list:
+            return []
         return (
             self._s.query(PlanEstudiosModel)
-            .filter(PlanEstudiosModel.id_plan.in_(ids))
+            .filter(PlanEstudiosModel.id_plan.in_(id_list))
             .order_by(PlanEstudiosModel.nombre)
             .all()
         )
@@ -368,7 +374,8 @@ class HorarioRepository:
         self, id_docente: int, id_plan: int, id_periodo: int,
     ) -> list[SemestreModel]:
         """Semestres (numero > 0) donde el docente tiene horarios."""
-        ids = (
+        id_list = [
+            r[0] for r in
             self._s.query(SemestreModel.id_semestre)
             .join(DetalleSemestreModel,
                   DetalleSemestreModel.id_semestre == SemestreModel.id_semestre)
@@ -385,11 +392,13 @@ class HorarioRepository:
                 SemestreModel.numero > 0,
             )
             .distinct()
-            .scalar_subquery()
-        )
+            .all()
+        ]
+        if not id_list:
+            return []
         return (
             self._s.query(SemestreModel)
-            .filter(SemestreModel.id_semestre.in_(ids))
+            .filter(SemestreModel.id_semestre.in_(id_list))
             .order_by(SemestreModel.numero)
             .all()
         )
@@ -407,16 +416,19 @@ class HorarioRepository:
 
     def obtener_niveles_con_historial(self) -> list[NivelAcademicoModel]:
         """Retorna niveles que tienen al menos un plan_generado en historial."""
-        ids = (
+        id_list = [
+            r[0] for r in
             self._s.query(PlanEstudiosModel.id_nivel)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_plan == PlanEstudiosModel.id_plan)
             .distinct()
-            .scalar_subquery()
-        )
+            .all()
+        ]
+        if not id_list:
+            return []
         return (
             self._s.query(NivelAcademicoModel)
-            .filter(NivelAcademicoModel.id_nivel.in_(ids))
+            .filter(NivelAcademicoModel.id_nivel.in_(id_list))
             .order_by(NivelAcademicoModel.nombre)
             .all()
         )
@@ -425,17 +437,20 @@ class HorarioRepository:
         self, id_nivel: int,
     ) -> list[PeriodoEscolarModel]:
         """Periodos que tienen al menos un plan_generado del nivel dado."""
-        ids = (
+        id_list = [
+            r[0] for r in
             self._s.query(PlanGeneradoModel.id_periodo)
             .join(PlanEstudiosModel,
                   PlanEstudiosModel.id_plan == PlanGeneradoModel.id_plan)
             .filter(PlanEstudiosModel.id_nivel == id_nivel)
             .distinct()
-            .scalar_subquery()
-        )
+            .all()
+        ]
+        if not id_list:
+            return []
         return (
             self._s.query(PeriodoEscolarModel)
-            .filter(PeriodoEscolarModel.id_periodo.in_(ids))
+            .filter(PeriodoEscolarModel.id_periodo.in_(id_list))
             .order_by(PeriodoEscolarModel.nombre)
             .all()
         )
@@ -444,7 +459,8 @@ class HorarioRepository:
         self, id_nivel: int, id_periodo: int,
     ) -> list[PlanEstudiosModel]:
         """Planes activos del nivel que tienen plan_generado en el periodo."""
-        ids = (
+        id_list = [
+            r[0] for r in
             self._s.query(PlanGeneradoModel.id_plan)
             .join(PlanEstudiosModel,
                   PlanEstudiosModel.id_plan == PlanGeneradoModel.id_plan)
@@ -453,11 +469,13 @@ class HorarioRepository:
                 PlanGeneradoModel.id_periodo == id_periodo,
             )
             .distinct()
-            .scalar_subquery()
-        )
+            .all()
+        ]
+        if not id_list:
+            return []
         return (
             self._s.query(PlanEstudiosModel)
-            .filter(PlanEstudiosModel.id_plan.in_(ids))
+            .filter(PlanEstudiosModel.id_plan.in_(id_list))
             .order_by(PlanEstudiosModel.nombre)
             .all()
         )
@@ -466,7 +484,8 @@ class HorarioRepository:
         self, id_nivel: int, id_plan: int, id_periodo: int,
     ) -> list[SemestreModel]:
         """Semestres (numero > 0) del plan/nivel/periodo con horarios."""
-        ids = (
+        id_list = [
+            r[0] for r in
             self._s.query(SemestreModel.id_semestre)
             .join(DetalleSemestreModel,
                   DetalleSemestreModel.id_semestre == SemestreModel.id_semestre)
@@ -485,29 +504,34 @@ class HorarioRepository:
                 SemestreModel.numero > 0,
             )
             .distinct()
-            .scalar_subquery()
-        )
+            .all()
+        ]
+        if not id_list:
+            return []
         return (
             self._s.query(SemestreModel)
-            .filter(SemestreModel.id_semestre.in_(ids))
+            .filter(SemestreModel.id_semestre.in_(id_list))
             .order_by(SemestreModel.numero)
             .all()
         )
 
     def obtener_niveles_con_docente(self) -> list[NivelAcademicoModel]:
         """Retorna niveles que tienen planes con horarios de docentes."""
-        ids = (
+        id_list = [
+            r[0] for r in
             self._s.query(PlanEstudiosModel.id_nivel)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_plan == PlanEstudiosModel.id_plan)
             .join(HorarioModel,
                   HorarioModel.id_plan_generado == PlanGeneradoModel.id_plan_generado)
             .distinct()
-            .scalar_subquery()
-        )
+            .all()
+        ]
+        if not id_list:
+            return []
         return (
             self._s.query(NivelAcademicoModel)
-            .filter(NivelAcademicoModel.id_nivel.in_(ids))
+            .filter(NivelAcademicoModel.id_nivel.in_(id_list))
             .order_by(NivelAcademicoModel.nombre)
             .all()
         )
@@ -516,7 +540,8 @@ class HorarioRepository:
         self, id_docente: int, id_nivel: int,
     ) -> list[PeriodoEscolarModel]:
         """Periodos donde el docente tiene horarios en planes del nivel dado."""
-        ids = (
+        id_list = [
+            r[0] for r in
             self._s.query(PeriodoEscolarModel.id_periodo)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_periodo == PeriodoEscolarModel.id_periodo)
@@ -529,11 +554,13 @@ class HorarioRepository:
                 PlanEstudiosModel.id_nivel == id_nivel,
             )
             .distinct()
-            .scalar_subquery()
-        )
+            .all()
+        ]
+        if not id_list:
+            return []
         return (
             self._s.query(PeriodoEscolarModel)
-            .filter(PeriodoEscolarModel.id_periodo.in_(ids))
+            .filter(PeriodoEscolarModel.id_periodo.in_(id_list))
             .order_by(PeriodoEscolarModel.nombre)
             .all()
         )
@@ -542,7 +569,8 @@ class HorarioRepository:
         self, id_docente: int, id_nivel: int, id_periodo: int,
     ) -> list[PlanEstudiosModel]:
         """Planes del nivel/periodo donde el docente tiene horarios."""
-        ids = (
+        id_list = [
+            r[0] for r in
             self._s.query(PlanGeneradoModel.id_plan)
             .join(HorarioModel,
                   HorarioModel.id_plan_generado == PlanGeneradoModel.id_plan_generado)
@@ -554,11 +582,13 @@ class HorarioRepository:
                 PlanGeneradoModel.id_periodo == id_periodo,
             )
             .distinct()
-            .scalar_subquery()
-        )
+            .all()
+        ]
+        if not id_list:
+            return []
         return (
             self._s.query(PlanEstudiosModel)
-            .filter(PlanEstudiosModel.id_plan.in_(ids))
+            .filter(PlanEstudiosModel.id_plan.in_(id_list))
             .order_by(PlanEstudiosModel.nombre)
             .all()
         )

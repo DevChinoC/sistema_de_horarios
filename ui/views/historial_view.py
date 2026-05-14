@@ -13,6 +13,7 @@ Cambios:
 import os
 import shutil
 import tempfile
+from functools import partial
 from typing import Callable
 
 import flet as ft
@@ -279,8 +280,8 @@ class HistorialView(ft.Container):
 
     def _cargar_datos(self) -> None:
         """Carga el historial y rellena el dropdown de Grado."""
-        self._todos = self._service.obtener_historial_planes()
-        self._niveles = self._service.obtener_niveles_con_historial()
+        self._todos = list(self._service.obtener_historial_planes())
+        self._niveles = list(self._service.obtener_niveles_con_historial())
 
         self._dd_grado.options = [
             _opcion(str(n["id"]), n["nombre"]) for n in self._niveles
@@ -415,12 +416,7 @@ class HistorialView(ft.Container):
         self._lbl_seleccion.italic = True
 
         if self.page:
-            for dd in (self._dd_grado, self._dd_periodo, self._dd_plan, self._dd_semestre):
-                dd.update()
-            self._tabla.update()
-            self._panel_tabla.update()
-            self._btn_exportar.update()
-            self._lbl_seleccion.update()
+            self.update()
 
         # Recargar datos y niveles desde BD
         self._cargar_datos()
@@ -450,32 +446,35 @@ class HistorialView(ft.Container):
                                 icon_color=Colores.AZUL_PRIMARIO,
                                 icon_size=18,
                                 tooltip="Ver horario",
-                                on_click=lambda _, pg_id=item.id_plan_generado,
-                                              plan_n=item.nombre_plan,
-                                              per_n=item.nombre_periodo:
-                                    self._ver_horario(pg_id, plan_n, per_n),
+                                on_click=partial(
+                                    self._on_ver_click,
+                                    item.id_plan_generado,
+                                    item.nombre_plan,
+                                    item.nombre_periodo),
                             ),
                             ft.IconButton(
                                 icon=ft.Icons.EDIT_OUTLINED,
                                 icon_color=Colores.AZUL_PRIMARIO,
                                 icon_size=18,
                                 tooltip="Editar",
-                                on_click=lambda _, pg_id=item.id_plan_generado:
-                                    self._editar(pg_id),
+                                on_click=partial(
+                                    self._on_editar_click,
+                                    item.id_plan_generado),
                             ),
                             ft.IconButton(
                                 icon=ft.Icons.DELETE_OUTLINED,
                                 icon_color=Colores.ROJO,
                                 icon_size=18,
                                 tooltip="Eliminar",
-                                on_click=lambda _, pg_id=item.id_plan_generado:
-                                    self._confirmar_eliminar(pg_id),
+                                on_click=partial(
+                                    self._on_eliminar_click,
+                                    item.id_plan_generado),
                             ),
                         ],
                         spacing=0,
                     )),
                 ],
-                on_select_changed=lambda _, it=item: self._on_row_selected(it),
+                on_select_changed=partial(self._on_row_select_click, item),
             )
             for item in items
         ]
@@ -489,6 +488,20 @@ class HistorialView(ft.Container):
             self._tabla.update()
             self._btn_exportar.update()
             self._lbl_seleccion.update()
+
+    # ── Wrappers para functools.partial ─────────────────────────
+
+    def _on_ver_click(self, pg_id: int, plan_n: str, per_n: str, _=None) -> None:
+        self._ver_horario(pg_id, plan_n, per_n)
+
+    def _on_editar_click(self, pg_id: int, _=None) -> None:
+        self._editar(pg_id)
+
+    def _on_eliminar_click(self, pg_id: int, _=None) -> None:
+        self._confirmar_eliminar(pg_id)
+
+    def _on_row_select_click(self, item, _=None) -> None:
+        self._on_row_selected(item)
 
     # ── Ver horario (popup) ───────────────────────────────────
 
@@ -517,7 +530,8 @@ class HistorialView(ft.Container):
 
         try:
             from ui.pdf.generador_pdf import GeneradorPDF
-            registros = self._service.obtener_horarios(id_plan)
+            registros = self._service.obtener_horarios_de_plan_generado(
+                id_plan_generado)
             if not registros:
                 self._msg("No hay horarios registrados para este plan.")
                 return
@@ -643,7 +657,8 @@ class HistorialView(ft.Container):
             self._msg("El plan no tiene membrete asignado.")
             return
 
-        registros = self._service.obtener_horarios(id_plan)
+        registros = self._service.obtener_horarios_de_plan_generado(
+            item.id_plan_generado)
         if not registros:
             self._msg("No hay horarios registrados para este plan.")
             return
@@ -683,7 +698,8 @@ class HistorialView(ft.Container):
 
         try:
             from ui.pdf.generador_pdf import GeneradorPDF
-            registros = self._service.obtener_horarios(id_plan)
+            registros = self._service.obtener_horarios_de_plan_generado(
+                item.id_plan_generado)
             if not registros:
                 self._msg("No hay horarios registrados para este plan.")
                 return

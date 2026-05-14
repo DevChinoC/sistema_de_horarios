@@ -558,10 +558,11 @@ class HorarioDocenteView(ft.Container):
             (f.hora_inicio, f.hora_fin) for f in filas
             if f.hora_inicio and f.hora_fin
         ))
-        mapa: dict[tuple, str] = {}
+        mapa: dict[tuple, set[str]] = {}
         for f in filas:
             if f.dia and f.hora_inicio:
-                mapa[(f.dia, f.hora_inicio)] = f.nombre_materia
+                key = (f.dia, f.hora_inicio)
+                mapa.setdefault(key, set()).add(f.nombre_materia)
 
         rows = []
         for (hi, hf) in franjas:
@@ -572,7 +573,8 @@ class HorarioDocenteView(ft.Container):
                                     weight=ft.FontWeight.W_600)),
             ]
             for dia in _DIAS:
-                materia = mapa.get((dia, hi), "")
+                materias_set = mapa.get((dia, hi), set())
+                materia = "\n".join(sorted(materias_set))
                 cell_content = ft.Container(
                     content=ft.Text(materia, size=10,
                                     font_family=Fuentes.CAMPOS, color=Colores.TEXTO),
@@ -712,14 +714,7 @@ class HorarioDocenteView(ft.Container):
         self._panel_prev.visible = False
 
         if self.page:
-            for dd in (self._dd_grado, self._dd_docente, self._dd_periodo,
-                       self._dd_plan, self._dd_semestre):
-                dd.update()
-            self._tabla_prev.update()
-            self._lbl_prev.update()
-            self._btn_ver.update()
-            self._btn_exportar.update()
-            self._panel_prev.update()
+            self.update()
 
     # ── Mensajes ──────────────────────────────────────────────
 

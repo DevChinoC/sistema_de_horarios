@@ -1,13 +1,15 @@
 import flet as ft
 import os
 import tempfile
+from functools import partial
 from typing import Callable
 from datetime import datetime
 
 from application.services.horario_service import HorarioService
-from application.dto.horario_dto import GuardarHorarioDTO
+from application.dto.horario_dto import GuardarHorarioDTO, FilaHorarioDTO
 from ui.components.plan_components import Colores, Fuentes, DialogoConfirmacion
 from ui.pdf.generador_pdf import GeneradorPDF
+from ui.views.horario_state import HorarioStateManager
 
 # ─────────────────────────────────────────────────────────────
 # Constantes de layout
@@ -660,21 +662,6 @@ class DetallePlanView(ft.Column):
         # ID del plan generado para precargar horarios desde historial
         self._id_plan_generado_precarga = id_plan_generado
 
-        # ── Estado de edición ─────────────────────────────────
-        self._editando_id: int | None = None   # id_horario en edición
-        # ── IDs de horarios creados en esta sesión (sin caché histórico) ─
-        self._ids_sesion: set[int] = set()  # solo IDs creados en esta sesión
-
-        # ── Caché en memoria de horas de tronco común (por sesión) ──
-        # Estructura: {id_semestre: {id_materia: [{"dia", "hora_inicio", "hora_fin"}, ...]}}
-        # Se resetea cada vez que se crea la vista (nueva sesión).
-        self._tronco_horas: dict[int, dict[int, list[dict]]] = {}
-
-        # ── Caché de horas de optativas por LIES (por sesión) ──
-        # Estructura: {id_lies: {id_sem: [{"dia", "hora_inicio", "hora_fin", "id_horario"}, ...]}}
-        # Permite detectar colisiones entre optativas dentro de la misma LIES.
-        self._optativa_horas: dict[int, dict[int, list[dict]]] = {}
-
         # ── FilePicker para guardar PDF ────────────────────────
         self._save_picker = ft.FilePicker(on_result=self._on_save_result)
 
@@ -691,12 +678,19 @@ class DetallePlanView(ft.Column):
         self._unidades  = []
 
         if self._all_lies:
-            # MIIDT → el usuario selecciona la LIES activa
-            self._id_lies_activa = self._all_lies[0].id
+            _id_lies_init = self._all_lies[0].id
         else:
-            # No MIIDT → tomar la primera LIES asociada al plan para queries
             _all = service.obtener_todas_lies_del_plan(id_plan)
-            self._id_lies_activa = _all[0].id if _all else 0
+            _id_lies_init = _all[0].id if _all else 0
+        self._id_lies_activa = _id_lies_init
+
+        # ── Estado centralizado (sesión, cachés, validación) ──
+        self._state = HorarioStateManager(
+            service=service,
+            id_plan=id_plan,
+            id_lies_activa=_id_lies_init,
+            sem_opt_id=self._sem_opt.id if self._sem_opt else None,
+        )
 
         # ════════════════════ LIES TABS ═══════════════════════
         self._lies_btns: list[ft.OutlinedButton] = []
@@ -1172,7 +1166,7 @@ class DetallePlanView(ft.Column):
             return
         # Agregar todos los IDs a la sesión
         for r in registros:
-            self._ids_sesion.add(r.id_horario)
+            self._state.ids_sesion.add(r.id_horario)
         # Auto-seleccionar el primer semestre que tenga horarios
         if self._semestres and not self._dd_semestre.value:
             # Buscar qué semestres tienen horarios precargados
@@ -1188,9 +1182,9 @@ class DetallePlanView(ft.Column):
             if self.page:
                 self._dd_semestre.update()
             self._on_semestre_cambiado(None)
-            # Restaurar _ids_sesion ya que _on_semestre_cambiado la limpia
+            # Restaurar ids_sesion ya que _on_semestre_cambiado la limpia
             for r in registros:
-                self._ids_sesion.add(r.id_horario)
+                self._state.ids_sesion.add(r.id_horario)
         # Recargar tabla con los horarios precargados
         self._recargar_tabla()
 
@@ -1208,6 +1202,7 @@ class DetallePlanView(ft.Column):
 
     def _on_lies_cambiado(self, lid: int, lnombre: str) -> None:
         self._id_lies_activa = lid
+        self._state.id_lies_activa = lid
         for btn in self._lies_btns:
             activo = btn.text == lnombre
             btn.style.bgcolor = (Colores.AZUL_PRIMARIO if activo
@@ -1219,7 +1214,7 @@ class DetallePlanView(ft.Column):
         # Limpiar tabla y sesión al cambiar de LIES
         # (el caché de tronco persiste entre LIES — correcto)
         self._tabla.rows = []
-        self._ids_sesion = set()
+        self._state.limpiar_sesion()
         if self.page:
             self._tabla.update()
         if self._dd_semestre.value:
@@ -1267,9 +1262,7 @@ class DetallePlanView(ft.Column):
 
         # Limpiar tabla y sesión al cambiar de semestre
         self._tabla.rows = []
-        self._ids_sesion = set()
-        self._tronco_horas = {}
-        self._optativa_horas = {}
+        self._state.limpiar_todo()
 
         if self.page:
             self._dd_unidad.update()
@@ -1406,183 +1399,32 @@ class DetallePlanView(ft.Column):
         except Exception as ex:
             self._msg(f"Error inesperado: {ex}")
 
-    # ── Helper: validar tronco común (por semestre) ────────────
+    # ── Extract: validar campos del formulario ─────────────
 
-    def _validar_tronco(
-        self,
-        es_tronco: bool,
-        id_materia: int | None,
-        id_sem: int | None,
-        filas: list[dict],
-        id_horario_excluir: int | None = None,
-    ) -> str | None:
-        """Valida reglas de horario.  Retorna mensaje de error o None.
-
-        Reglas:
-        1. Misma materia de tronco en otra LIES → mismos días y horas.
-        2. Diferente materia de tronco → no puede solaparse en mismo día.
-        3. Optativa → no puede solaparse con tronco común en mismo día.
-        4. Optativas dentro de la misma LIES → no pueden solaparse en mismo día.
-        5. Todo es por semestre; otro semestre no afecta.
-        """
-        if id_sem is None:
-            return None
-        sem_cache = self._tronco_horas.get(id_sem, {})
-
-        if es_tronco and id_materia is not None:
-            # ── Regla: otra materia de tronco → sin solapamiento (por día) ──
-            # La misma materia en días diferentes NO genera conflicto.
-            for mat_id, mat_hrs in sem_cache.items():
-                if mat_id == id_materia:
-                    continue
-                for h_ex in mat_hrs:
-                    hi_ex = datetime.strptime(h_ex["hora_inicio"], "%H:%M")
-                    hf_ex = datetime.strptime(h_ex["hora_fin"], "%H:%M")
-                    for f in filas:
-                        # Solo hay colisión si es el MISMO DÍA
-                        if f.get("dia", "") != h_ex.get("dia", ""):
-                            continue
-                        hi_n = datetime.strptime(f["hora_inicio"], "%H:%M")
-                        hf_n = datetime.strptime(f["hora_fin"], "%H:%M")
-                        if hi_n < hf_ex and hf_n > hi_ex:
-                            return (
-                                f"El rango {f['dia']} {f['hora_inicio']}–{f['hora_fin']} "
-                                f"colisiona con otra materia de tronco común "
-                                f"({h_ex['dia']} {h_ex['hora_inicio']}–{h_ex['hora_fin']}).\n"
-                                f"Las materias de tronco no pueden compartir "
-                                f"rango horario en el mismo día y semestre."
-                            )
-        else:
-            # ── Regla 3: optativa vs tronco → sin solapamiento (por día) ──
-            for _mat_id, mat_hrs in sem_cache.items():
-                for h_ex in mat_hrs:
-                    hi_ex = datetime.strptime(h_ex["hora_inicio"], "%H:%M")
-                    hf_ex = datetime.strptime(h_ex["hora_fin"], "%H:%M")
-                    for f in filas:
-                        if f.get("dia", "") != h_ex.get("dia", ""):
-                            continue
-                        hi_n = datetime.strptime(f["hora_inicio"], "%H:%M")
-                        hf_n = datetime.strptime(f["hora_fin"], "%H:%M")
-                        if hi_n < hf_ex and hf_n > hi_ex:
-                            return (
-                                f"El horario {f['dia']} {f['hora_inicio']}–{f['hora_fin']} "
-                                f"colisiona con una materia de tronco común "
-                                f"({h_ex['dia']} {h_ex['hora_inicio']}–{h_ex['hora_fin']}).\n"
-                                f"Las optativas no pueden compartir rango "
-                                f"horario con materias de tronco común en el mismo día."
-                            )
-
-            # ── Regla 4: optativa vs optativa en la MISMA LIES → sin solapamiento (por día) ──
-            lies_opt_cache = self._optativa_horas.get(self._id_lies_activa, {})
-            opt_sem_cache  = lies_opt_cache.get(id_sem, [])
-            for h_ex in opt_sem_cache:
-                # Excluir el propio horario cuando estamos editando
-                if id_horario_excluir is not None and h_ex.get("id_horario") == id_horario_excluir:
-                    continue
-                hi_ex = datetime.strptime(h_ex["hora_inicio"], "%H:%M")
-                hf_ex = datetime.strptime(h_ex["hora_fin"], "%H:%M")
-                for f in filas:
-                    if f.get("dia", "") != h_ex.get("dia", ""):
-                        continue
-                    hi_n = datetime.strptime(f["hora_inicio"], "%H:%M")
-                    hf_n = datetime.strptime(f["hora_fin"], "%H:%M")
-                    if hi_n < hf_ex and hf_n > hi_ex:
-                        return (
-                            f"El horario {f['dia']} {f['hora_inicio']}–{f['hora_fin']} "
-                            f"colisiona con otra optativa en esta LIES "
-                            f"({h_ex['dia']} {h_ex['hora_inicio']}–{h_ex['hora_fin']}).\n"
-                            f"Dos optativas no pueden compartir el mismo horario "
-                            f"en la misma LIES y semestre."
-                        )
-        return None
-
-    def _registrar_tronco_cache(
-        self, id_sem: int, id_materia: int, filas: list[dict],
-    ) -> None:
-        """Agrega las horas al caché de tronco, acumulando entradas
-        para la misma materia en días diferentes."""
-        if id_sem not in self._tronco_horas:
-            self._tronco_horas[id_sem] = {}
-        if id_materia not in self._tronco_horas[id_sem]:
-            self._tronco_horas[id_sem][id_materia] = []
-        # Agregar solo entradas que no estén ya en el caché (evitar duplicados)
-        existing = {
-            (h["dia"], h["hora_inicio"], h["hora_fin"])
-            for h in self._tronco_horas[id_sem][id_materia]
-        }
-        for f in filas:
-            key = (f["dia"], f["hora_inicio"], f["hora_fin"])
-            if key not in existing:
-                self._tronco_horas[id_sem][id_materia].append({
-                    "dia": f["dia"],
-                    "hora_inicio": f["hora_inicio"],
-                    "hora_fin": f["hora_fin"],
-                })
-                existing.add(key)
-
-    def _registrar_optativa_cache(
-        self, id_lies: int, id_sem: int, filas: list[dict], id_horario: int,
-    ) -> None:
-        """Registra las horas de una optativa en el caché de optativas de la LIES."""
-        if id_lies not in self._optativa_horas:
-            self._optativa_horas[id_lies] = {}
-        if id_sem not in self._optativa_horas[id_lies]:
-            self._optativa_horas[id_lies][id_sem] = []
-        for f in filas:
-            self._optativa_horas[id_lies][id_sem].append({
-                "dia": f["dia"],
-                "hora_inicio": f["hora_inicio"],
-                "hora_fin": f["hora_fin"],
-                "id_horario": id_horario,
-            })
-
-    def _actualizar_optativa_cache(
-        self, id_lies: int, id_sem: int, filas: list[dict], id_horario: int,
-    ) -> None:
-        """Reemplaza las horas de una optativa editada en el caché."""
-        if id_lies in self._optativa_horas and id_sem in self._optativa_horas[id_lies]:
-            self._optativa_horas[id_lies][id_sem] = [
-                h for h in self._optativa_horas[id_lies][id_sem]
-                if h.get("id_horario") != id_horario
-            ]
-        self._registrar_optativa_cache(id_lies, id_sem, filas, id_horario)
-
-    def _quitar_optativa_cache(self, id_lies: int, id_sem: int, id_horario: int) -> None:
-        """Elimina las horas de una optativa del caché al borrarla."""
-        if id_lies in self._optativa_horas and id_sem in self._optativa_horas[id_lies]:
-            self._optativa_horas[id_lies][id_sem] = [
-                h for h in self._optativa_horas[id_lies][id_sem]
-                if h.get("id_horario") != id_horario
-            ]
-
-    # ── Guardar horario (nuevo) ───────────────────────────────
-
-    def _agregar(self) -> None:
+    def _validar_campos_formulario(self) -> tuple | None:
+        """Valida los campos comunes del formulario.
+        Retorna (id_asig, id_aula, id_doc, periodo_txt) o None si hay error."""
         id_asig     = self._dd_unidad.value
         id_aula     = self._ctrl_aula.value
         id_doc      = self._ctrl_docente.value
         periodo_txt = (self._campo_periodo.value or "").strip()
 
         if not id_asig:
-            self._msg("Selecciona una unidad de aprendizaje."); return
+            self._msg("Selecciona una unidad de aprendizaje."); return None
         if not id_aula or id_aula == _KEY_NUEVO:
-            self._msg("Selecciona un aula."); return
+            self._msg("Selecciona un aula."); return None
         if not id_doc or id_doc == _KEY_NUEVO:
-            self._msg("Selecciona un docente."); return
+            self._msg("Selecciona un docente."); return None
         if not periodo_txt:
-            self._msg("Escribe el periodo."); return
+            self._msg("Escribe el periodo."); return None
+        return id_asig, id_aula, id_doc, periodo_txt
 
-        periodo_dto = self._service.crear_periodo(periodo_txt)
-        if periodo_dto is None:
-            self._msg("Error al registrar el periodo."); return
+    # ── Extract: recopilar filas válidas del formulario ──────
 
-        # ── Tipo de materia y semestre ─────────────────────────
-        id_materia = self._service.obtener_id_materia(int(id_asig))
-        es_tronco  = id_materia is not None
-        id_sem     = int(self._dd_semestre.value) if self._dd_semestre.value else None
-
-        # ── Recopilar filas válidas ────────────────────────────
-        filas_validas: list[dict] = []
+    def _recopilar_filas_validas(self) -> list[FilaHorarioDTO] | None:
+        """Recoge las filas válidas del formulario de horario.
+        Retorna lista de FilaHorarioDTO o None si hay error de validación."""
+        filas: list[FilaHorarioDTO] = []
         for fila in self._filas_horario:
             dia = (fila.dd_dia.value or "").strip()
             if not dia:
@@ -1594,48 +1436,69 @@ class DetallePlanView(ft.Column):
                 t1 = datetime.strptime(hf, "%H:%M")
                 delta = max(0, (t1 - t0).seconds) // 3600
             except ValueError:
-                self._msg(f"Formato inválido: {hi} – {hf}"); return
-            filas_validas.append({
-                "dia": dia, "hora_inicio": hi, "hora_fin": hf,
-                "delta": delta,
-            })
+                self._msg(f"Formato inválido: {hi} – {hf}"); return None
+            filas.append(FilaHorarioDTO(dia=dia, hora_inicio=hi, hora_fin=hf, delta=delta))
+        if not filas:
+            self._msg("Completa al menos un horario (día + horas)."); return None
+        return filas
 
-        if not filas_validas:
-            self._msg("Completa al menos un horario (día + horas)."); return
+    # ── Guardar horario (nuevo) ───────────────────────────────
+
+    def _agregar(self) -> None:
+        campos = self._validar_campos_formulario()
+        if campos is None:
+            return
+        id_asig, id_aula, id_doc, periodo_txt = campos
+
+        periodo_dto = self._service.crear_periodo(periodo_txt)
+        if periodo_dto is None:
+            self._msg("Error al registrar el periodo."); return
+
+        # ── Tipo de materia y semestre ─────────────────────────
+        id_materia = self._service.obtener_id_materia(int(id_asig))
+        es_tronco  = id_materia is not None
+        id_sem     = int(self._dd_semestre.value) if self._dd_semestre.value else None
+
+        # ── Recopilar filas válidas ────────────────────────────
+        filas_validas = self._recopilar_filas_validas()
+        if filas_validas is None:
+            return
 
         # ── Validación de tronco común (por semestre) ──────────
-        error = self._validar_tronco(es_tronco, id_materia, id_sem, filas_validas)
+        error = self._state.validar_horario(es_tronco, id_materia, id_sem, filas_validas)
         if error:
             self._msg(error); return
 
         # ── Guardar cada fila ─────────────────────────────────
+        ids_nuevos = []
         for f in filas_validas:
             ok, msg, id_nuevo = self._service.guardar_horario(GuardarHorarioDTO(
                 id_asignacion=int(id_asig),
                 id_docente=int(id_doc),
                 id_aula=int(id_aula),
                 id_periodo=periodo_dto.id,
-                dia=f["dia"], hora_inicio=f["hora_inicio"],
-                hora_fin=f["hora_fin"],
-                total_horas=f["delta"], id_plan=self._id_plan,
+                dia=f.dia, hora_inicio=f.hora_inicio,
+                hora_fin=f.hora_fin,
+                total_horas=f.delta, id_plan=self._id_plan,
             ))
             if not ok:
                 self._msg(msg); return
             if id_nuevo is not None:
-                self._ids_sesion.add(id_nuevo)
+                self._state.ids_sesion.add(id_nuevo)
+                ids_nuevos.append(id_nuevo)
 
         # ── Actualizar caché de tronco u optativa ─────────────
         if es_tronco and id_materia is not None and id_sem is not None:
-            self._registrar_tronco_cache(id_sem, id_materia, filas_validas)
+            self._state.registrar_tronco(id_sem, id_materia, filas_validas)
         elif not es_tronco and id_sem is not None:
-            # Registrar optativa: un id_horario por fila (misma cantidad que filas_validas)
-            ids_nuevos = sorted(self._ids_sesion)[-len(filas_validas):]
             for fila_d, id_h in zip(filas_validas, ids_nuevos):
-                self._registrar_optativa_cache(
+                self._state.registrar_optativa(
                     self._id_lies_activa, id_sem, [fila_d], id_h)
 
         self._msg("¡Horario agregado correctamente!")
         self._recargar_tabla()
+        self._limpiar_formulario()
+
 
     # ── Edición: iniciar ──────────────────────────────────────
 
@@ -1646,7 +1509,7 @@ class DetallePlanView(ft.Column):
         if detalle is None:
             self._msg("No se encontró el horario."); return
 
-        self._editando_id = id_horario
+        self._state.editando_id = id_horario
 
         # 1. Semestre — cargar unidades SIN limpiar tabla/sesión
         self._dd_semestre.value = str(detalle.id_semestre)
@@ -1691,10 +1554,7 @@ class DetallePlanView(ft.Column):
         self._btn_guardar.visible = True
         self._btn_cancelar.visible = True
         if self.page:
-            self._btn_accion.update()
-            self._btn_guardar.update()
-            self._btn_cancelar.update()
-            self._col_horarios.update()
+            self.update()
 
     def _cargar_unidades_sin_limpiar(self, id_sem: str) -> None:
         """Carga las unidades de aprendizaje para el semestre dado
@@ -1720,16 +1580,6 @@ class DetallePlanView(ft.Column):
         self._dd_unidad.disabled = not unidades
         self._tipo_txt.value     = ""
 
-        # Resetear búsqueda si estaba activa
-        if self._buscando_unidad:
-            self._buscando_unidad = False
-            self._tf_buscar_unidad.visible = False
-            self._tf_buscar_unidad.value = ""
-            self._dd_unidad.visible = True
-            if self.page:
-                self._tf_buscar_unidad.update()
-                self._dd_unidad.update()
-
         if self.page:
             self._dd_unidad.update()
             self._tipo_txt.update()
@@ -1747,7 +1597,7 @@ class DetallePlanView(ft.Column):
 
     def _cancelar_edicion(self) -> None:
         """Restaura el formulario al modo agregar, conservando la tabla y el semestre."""
-        self._editando_id = None
+        self._state.editando_id = None
 
         # Restaurar botones: mostrar "+ Agregar", ocultar "Guardar" y "Cancelar"
         self._btn_accion.visible = True
@@ -1767,22 +1617,12 @@ class DetallePlanView(ft.Column):
             self._col_horarios.controls.remove(f)
         fila = self._filas_horario[0]
         fila.dd_dia.value = None
-        # Reset time pickers to defaults
         fila.hora_inicio.set_from_24h("01:00")
         fila.hora_fin.set_from_24h("01:00")
         self._actualizar_total(None)
 
         if self.page:
-            self._btn_accion.update()
-            self._btn_guardar.update()
-            self._btn_cancelar.update()
-            self._dd_unidad.update()
-            self._tipo_txt.update()
-            self._campo_periodo.update()
-            fila.dd_dia.update()
-            self._col_horarios.update()
-            self._ctrl_aula.update()
-            self._ctrl_docente.update()
+            self.update()
         # Mostrar las materias de la sesión actual en la tabla
         self._recargar_tabla()
 
@@ -1792,54 +1632,28 @@ class DetallePlanView(ft.Column):
         """Guarda los cambios del horario en edición.
         Soporta múltiples filas: actualiza el registro original con la primera
         fila y crea nuevos registros para las filas adicionales."""
-        id_asig     = self._dd_unidad.value
-        id_aula     = self._ctrl_aula.value
-        id_doc      = self._ctrl_docente.value
-        periodo_txt = (self._campo_periodo.value or "").strip()
-
-        if not id_asig:
-            self._msg("Selecciona una unidad de aprendizaje."); return
-        if not id_aula or id_aula == _KEY_NUEVO:
-            self._msg("Selecciona un aula."); return
-        if not id_doc or id_doc == _KEY_NUEVO:
-            self._msg("Selecciona un docente."); return
-        if not periodo_txt:
-            self._msg("Escribe el periodo."); return
+        campos = self._validar_campos_formulario()
+        if campos is None:
+            return
+        id_asig, id_aula, id_doc, periodo_txt = campos
 
         periodo_dto = self._service.crear_periodo(periodo_txt)
         if periodo_dto is None:
             self._msg("Error al registrar el periodo."); return
 
         # ── Recopilar TODAS las filas válidas ────────────────────
-        filas_validas: list[dict] = []
-        for fila in self._filas_horario:
-            dia = (fila.dd_dia.value or "").strip()
-            if not dia:
-                continue
-            hi = fila.hora_inicio.get_24h()
-            hf = fila.hora_fin.get_24h()
-            try:
-                t0 = datetime.strptime(hi, "%H:%M")
-                t1 = datetime.strptime(hf, "%H:%M")
-                delta = max(0, (t1 - t0).seconds) // 3600
-            except ValueError:
-                self._msg(f"Formato inválido: {hi} – {hf}"); return
-            filas_validas.append({
-                "dia": dia, "hora_inicio": hi, "hora_fin": hf,
-                "delta": delta,
-            })
-
-        if not filas_validas:
-            self._msg("Completa al menos un horario (día + horas)."); return
+        filas_validas = self._recopilar_filas_validas()
+        if filas_validas is None:
+            return
 
         # ── Validación de tronco común (por semestre) ──────────
         id_materia = self._service.obtener_id_materia(int(id_asig))
         es_tronco  = id_materia is not None
         id_sem     = int(self._dd_semestre.value) if self._dd_semestre.value else None
 
-        error = self._validar_tronco(
+        error = self._state.validar_horario(
             es_tronco, id_materia, id_sem, filas_validas,
-            id_horario_excluir=self._editando_id,
+            id_horario_excluir=self._state.editando_id,
         )
         if error:
             self._msg(error); return
@@ -1847,21 +1661,20 @@ class DetallePlanView(ft.Column):
         # ── Actualizar el registro original con la primera fila ──
         f0 = filas_validas[0]
         ok, msg = self._service.actualizar_horario(
-            id_horario=self._editando_id,
+            id_horario=self._state.editando_id,
             dto=GuardarHorarioDTO(
                 id_asignacion=int(id_asig),
                 id_docente=int(id_doc),
                 id_aula=int(id_aula),
                 id_periodo=periodo_dto.id,
-                dia=f0["dia"], hora_inicio=f0["hora_inicio"],
-                hora_fin=f0["hora_fin"],
-                total_horas=f0["delta"], id_plan=self._id_plan,
+                dia=f0.dia, hora_inicio=f0.hora_inicio,
+                hora_fin=f0.hora_fin,
+                total_horas=f0.delta, id_plan=self._id_plan,
             ),
         )
 
         if not ok:
             self._msg(msg)
-            # Aun así regresar a la pantalla de creación
             self._cancelar_edicion()
             return
 
@@ -1872,37 +1685,65 @@ class DetallePlanView(ft.Column):
                 id_docente=int(id_doc),
                 id_aula=int(id_aula),
                 id_periodo=periodo_dto.id,
-                dia=f["dia"], hora_inicio=f["hora_inicio"],
-                hora_fin=f["hora_fin"],
-                total_horas=f["delta"], id_plan=self._id_plan,
+                dia=f.dia, hora_inicio=f.hora_inicio,
+                hora_fin=f.hora_fin,
+                total_horas=f.delta, id_plan=self._id_plan,
             ))
             if not ok_n:
                 self._msg(msg_n); break
             if id_nuevo is not None:
-                self._ids_sesion.add(id_nuevo)
+                self._state.ids_sesion.add(id_nuevo)
 
         # ── Actualizar caché de tronco u optativa ─────────────
         if es_tronco and id_materia is not None and id_sem is not None:
-            self._registrar_tronco_cache(id_sem, id_materia, filas_validas)
-        elif not es_tronco and id_sem is not None and self._editando_id is not None:
-            self._actualizar_optativa_cache(
-                self._id_lies_activa, id_sem, filas_validas, self._editando_id)
+            self._state.registrar_tronco(id_sem, id_materia, filas_validas)
+        elif not es_tronco and id_sem is not None and self._state.editando_id is not None:
+            self._state.actualizar_optativa(
+                self._id_lies_activa, id_sem, filas_validas, self._state.editando_id)
 
         self._msg("¡Horario actualizado correctamente!")
-        # Siempre regresar a la pantalla de creación con la tabla visible
-        self._cancelar_edicion()  # ya llama _recargar_tabla internamente
+        self._cancelar_edicion()
+        self._state.reconstruir_caches(self._dd_semestre.value)
+
+    # ── Limpieza de formulario ─────────────────────────────────
+
+    def _limpiar_formulario(self) -> None:
+        """Reinicia todos los campos del formulario al estado vacío."""
+        self._dd_unidad.value = None
+        self._ctrl_aula.value = None
+        self._ctrl_docente.value = None
+        self._campo_periodo.value = ""
+        self._tipo_txt.value = ""
+
+        while len(self._filas_horario) > 1:
+            fila = self._filas_horario.pop()
+            self._col_horarios.controls.remove(fila)
+
+        fila = self._filas_horario[0]
+        fila.dd_dia.value = None
+        fila.hora_inicio.set_from_24h("07:00")
+        fila.hora_fin.set_from_24h("08:00")
+        self._actualizar_total(None)
+
+        if self.page:
+            self.update()
+
+    # ── Reconstrucción de cachés (delegado al state) ──────────
+
+    def _reconstruir_caches(self) -> None:
+        """Delegación a HorarioStateManager."""
+        self._state.reconstruir_caches(self._dd_semestre.value)
 
     # ── Tabla inferior ────────────────────────────────────────
 
     def _recargar_tabla(self) -> None:
         """Recarga la tabla mostrando ÚNICAMENTE los horarios creados en esta sesión."""
         try:
-            if not self._ids_sesion:
+            if not self._state.ids_sesion:
                 self._tabla.rows = []
                 if self.page:
                     self._tabla.update()
                 return
-            # Obtener todos los registros del semestre/lies actuales
             id_sem = self._dd_semestre.value
             if not id_sem:
                 self._tabla.rows = []
@@ -1915,8 +1756,7 @@ class DetallePlanView(ft.Column):
                 id_semestre=int(id_sem),
                 id_semestre_opt=self._sem_opt.id if self._sem_opt else None,
             )
-            # Filtrar: solo los de esta sesión
-            registros = [r for r in todos if r.id_horario in self._ids_sesion]
+            registros = [r for r in todos if r.id_horario in self._state.ids_sesion]
             # Re-numerar claves desde 001
             self._tabla.rows = [
                 ft.DataRow(cells=[
@@ -1939,15 +1779,13 @@ class DetallePlanView(ft.Column):
                             icon=ft.Icons.EDIT,
                             icon_color=Colores.AZUL_PRIMARIO,
                             icon_size=16, tooltip="Editar",
-                            on_click=lambda _, rid=r.id_horario:
-                                self._iniciar_edicion(rid),
+                            on_click=partial(self._on_editar_click, r.id_horario),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.DELETE,
                             icon_color=Colores.ROJO,
                             icon_size=16, tooltip="Eliminar",
-                            on_click=lambda _, rid=r.id_horario:
-                                self._confirmar_eliminar(rid),
+                            on_click=partial(self._on_eliminar_click, r.id_horario),
                         ),
                     ], spacing=0)),
                 ])
@@ -1965,17 +1803,25 @@ class DetallePlanView(ft.Column):
             on_confirmar=lambda: self._eliminar(id_horario),
         ))
 
+    def _on_editar_click(self, id_horario: int, _=None) -> None:
+        """Wrapper para functools.partial en tabla."""
+        self._iniciar_edicion(id_horario)
+
+    def _on_eliminar_click(self, id_horario: int, _=None) -> None:
+        """Wrapper para functools.partial en tabla."""
+        self._confirmar_eliminar(id_horario)
+
     def _eliminar(self, id_horario: int) -> None:
-        # Guardar semestre activo antes de eliminar para actualizar caché
         id_sem_actual = int(self._dd_semestre.value) if self._dd_semestre.value else None
         ok, msg = self._service.eliminar_horario(id_horario)
         self._msg(msg)
         if ok:
-            self._ids_sesion.discard(id_horario)
+            self._state.ids_sesion.discard(id_horario)
             if id_sem_actual is not None:
-                self._quitar_optativa_cache(
+                self._state.quitar_optativa(
                     self._id_lies_activa, id_sem_actual, id_horario)
             self._recargar_tabla()
+            self._reconstruir_caches()
 
     # ── Helpers de PDF ─────────────────────────────────────────
 
@@ -1987,7 +1833,7 @@ class DetallePlanView(ft.Column):
         if not id_sem:
             self._msg("Selecciona un semestre antes de exportar.")
             return None
-        if not self._ids_sesion:
+        if not self._state.ids_sesion:
             self._msg("No hay horarios en esta sesión para exportar. "
                       "Agrega al menos un horario primero.")
             return None
@@ -1998,7 +1844,7 @@ class DetallePlanView(ft.Column):
             id_semestre=int(id_sem),
             id_semestre_opt=self._sem_opt.id if self._sem_opt else None,
         )
-        registros = [r for r in todos if r.id_horario in self._ids_sesion]
+        registros = [r for r in todos if r.id_horario in self._state.ids_sesion]
         if not registros:
             self._msg("No hay horarios de sesión para exportar.")
             return None
@@ -2136,8 +1982,7 @@ class DetallePlanView(ft.Column):
     # ── Navegación y mensajes ─────────────────────────────────
 
     def _volver(self) -> None:
-        # Limpiar estado del formulario para que al volver quede vacío
-        self._editando_id = None
+        self._state.limpiar_completo()
         self._dd_semestre.value = None
         self._dd_unidad.options = []
         self._dd_unidad.value = None
@@ -2158,9 +2003,8 @@ class DetallePlanView(ft.Column):
         self._btn_accion.visible = True
         self._btn_guardar.visible = False
         self._btn_cancelar.visible = False
-        # Limpiar tabla y sesión
+        # Limpiar tabla
         self._tabla.rows = []
-        self._ids_sesion = set()
         # Remover FilePicker del overlay para no acumular
         if self._save_picker in self._page.overlay:
             self._page.overlay.remove(self._save_picker)

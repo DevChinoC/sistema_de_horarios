@@ -92,3 +92,15 @@ class GuardarHorarioDTO:
     hora_fin:      str   # "HH:MM"
     total_horas:   int
     id_plan:       int
+
+
+# ── Fila temporal de horario (formulario) ────────────────────
+
+@dataclass
+class FilaHorarioDTO:
+    """Fila temporal de horario capturada del formulario."""
+    dia: str
+    hora_inicio: str  # "HH:MM" 24h
+    hora_fin: str     # "HH:MM" 24h
+    delta: int = 0    # horas calculadas
+

@@ -338,6 +338,7 @@ class HorarioRepository:
         ]
         if not id_list:
             return []
+        id_list = list(dict.fromkeys(id_list))  # deduplicar
         return (
             self._s.query(PeriodoEscolarModel)
             .filter(PeriodoEscolarModel.id_periodo.in_(id_list))
@@ -363,6 +364,7 @@ class HorarioRepository:
         ]
         if not id_list:
             return []
+        id_list = list(dict.fromkeys(id_list))  # deduplicar
         return (
             self._s.query(PlanEstudiosModel)
             .filter(PlanEstudiosModel.id_plan.in_(id_list))
@@ -396,6 +398,7 @@ class HorarioRepository:
         ]
         if not id_list:
             return []
+        id_list = list(dict.fromkeys(id_list))  # deduplicar
         return (
             self._s.query(SemestreModel)
             .filter(SemestreModel.id_semestre.in_(id_list))
@@ -426,6 +429,7 @@ class HorarioRepository:
         ]
         if not id_list:
             return []
+        id_list = list(dict.fromkeys(id_list))  # deduplicar
         return (
             self._s.query(NivelAcademicoModel)
             .filter(NivelAcademicoModel.id_nivel.in_(id_list))
@@ -448,6 +452,7 @@ class HorarioRepository:
         ]
         if not id_list:
             return []
+        id_list = list(dict.fromkeys(id_list))  # deduplicar
         return (
             self._s.query(PeriodoEscolarModel)
             .filter(PeriodoEscolarModel.id_periodo.in_(id_list))
@@ -473,6 +478,7 @@ class HorarioRepository:
         ]
         if not id_list:
             return []
+        id_list = list(dict.fromkeys(id_list))  # deduplicar
         return (
             self._s.query(PlanEstudiosModel)
             .filter(PlanEstudiosModel.id_plan.in_(id_list))
@@ -508,6 +514,7 @@ class HorarioRepository:
         ]
         if not id_list:
             return []
+        id_list = list(dict.fromkeys(id_list))  # deduplicar
         return (
             self._s.query(SemestreModel)
             .filter(SemestreModel.id_semestre.in_(id_list))
@@ -529,6 +536,7 @@ class HorarioRepository:
         ]
         if not id_list:
             return []
+        id_list = list(dict.fromkeys(id_list))  # deduplicar
         return (
             self._s.query(NivelAcademicoModel)
             .filter(NivelAcademicoModel.id_nivel.in_(id_list))
@@ -558,6 +566,7 @@ class HorarioRepository:
         ]
         if not id_list:
             return []
+        id_list = list(dict.fromkeys(id_list))  # deduplicar
         return (
             self._s.query(PeriodoEscolarModel)
             .filter(PeriodoEscolarModel.id_periodo.in_(id_list))
@@ -586,6 +595,7 @@ class HorarioRepository:
         ]
         if not id_list:
             return []
+        id_list = list(dict.fromkeys(id_list))  # deduplicar
         return (
             self._s.query(PlanEstudiosModel)
             .filter(PlanEstudiosModel.id_plan.in_(id_list))
@@ -608,6 +618,14 @@ class HorarioRepository:
         return docente
 
     def crear_periodo(self, nombre: str) -> PeriodoEscolarModel:
+        """Obtiene un periodo existente por nombre, o lo crea si no existe."""
+        existente = (
+            self._s.query(PeriodoEscolarModel)
+            .filter(PeriodoEscolarModel.nombre == nombre)
+            .first()
+        )
+        if existente:
+            return existente
         periodo = PeriodoEscolarModel(nombre=nombre)
         self._s.add(periodo)
         self._s.flush()

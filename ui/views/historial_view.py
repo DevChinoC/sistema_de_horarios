@@ -453,15 +453,6 @@ class HistorialView(ft.Container):
                                     item.nombre_periodo),
                             ),
                             ft.IconButton(
-                                icon=ft.Icons.EDIT_OUTLINED,
-                                icon_color=Colores.AZUL_PRIMARIO,
-                                icon_size=18,
-                                tooltip="Editar",
-                                on_click=partial(
-                                    self._on_editar_click,
-                                    item.id_plan_generado),
-                            ),
-                            ft.IconButton(
                                 icon=ft.Icons.DELETE_OUTLINED,
                                 icon_color=Colores.ROJO,
                                 icon_size=18,

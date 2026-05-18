@@ -143,13 +143,24 @@ class HorarioModel(Base):
     __tablename__ = "horarios"
     id_horario       = Column(Integer, primary_key=True, autoincrement=True)
     id_plan_generado = Column(Integer, ForeignKey("plan_generado.id_plan_generado"),   nullable=False)
-    id_asignacion    = Column(Integer, ForeignKey("asignacion_materia.id_asignacion"), nullable=False)
     id_docente       = Column(Integer, ForeignKey("docentes.id_docente"),              nullable=False)
     id_aula          = Column(Integer, ForeignKey("aulas.id_aula"),                    nullable=False)
+    total_horas      = Column(Integer)
+    plan_generado = relationship("PlanGeneradoModel", back_populates="horarios")
+    docente       = relationship("DocenteModel",       back_populates="horarios")
+    aula          = relationship("AulaModel",           back_populates="horarios")
+    detalles      = relationship("DetalleHorarioModel", back_populates="horario",
+                                 cascade="all, delete-orphan")
+
+
+class DetalleHorarioModel(Base):
+    __tablename__ = "detalle_horario"
+    id_detalle_horario = Column(Integer, primary_key=True, autoincrement=True)
+    id_horario         = Column(Integer, ForeignKey("horarios.id_horario"), nullable=False)
+    id_asignacion      = Column(Integer, ForeignKey("asignacion_materia.id_asignacion"), nullable=False)
     dia          = Column(Enum("Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"), nullable=False)
     hora_inicio  = Column(Time,    nullable=False)
     hora_fin     = Column(Time,    nullable=False)
     total_horas  = Column(Integer)
-    plan_generado = relationship("PlanGeneradoModel", back_populates="horarios")
-    docente       = relationship("DocenteModel",       back_populates="horarios")
-    aula          = relationship("AulaModel",           back_populates="horarios")
+    horario      = relationship("HorarioModel",           back_populates="detalles")
+    asignacion   = relationship("AsignacionMateriaModel")

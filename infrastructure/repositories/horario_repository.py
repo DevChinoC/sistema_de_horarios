@@ -5,7 +5,7 @@ from infrastructure.db.models import (
     DetalleSemestreModel, AsignacionMateriaModel,
     MateriaTroncoModel, OptativaModel,
     DocenteModel, AulaModel, PeriodoEscolarModel,
-    HorarioModel, PlanGeneradoModel, TipoMateriaModel,
+    HorarioModel, DetalleHorarioModel, PlanGeneradoModel, TipoMateriaModel,
 )
 
 
@@ -99,15 +99,17 @@ class HorarioRepository:
                 DocenteModel.nombre.label("docente"),
                 AulaModel.nombre.label("aula"),
                 PeriodoEscolarModel.nombre.label("periodo"),
-                HorarioModel.total_horas,
-                HorarioModel.dia,
-                HorarioModel.hora_inicio,
-                HorarioModel.hora_fin,
+                DetalleHorarioModel.total_horas,
+                DetalleHorarioModel.dia,
+                DetalleHorarioModel.hora_inicio,
+                DetalleHorarioModel.hora_fin,
             )
+            .join(DetalleHorarioModel,
+                  DetalleHorarioModel.id_horario == HorarioModel.id_horario)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
             .join(AsignacionMateriaModel,
-                  AsignacionMateriaModel.id_asignacion == HorarioModel.id_asignacion)
+                  AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
             .join(DetalleSemestreModel,
                   DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
             .join(SemestreModel,
@@ -149,15 +151,17 @@ class HorarioRepository:
                 DocenteModel.nombre.label("docente"),
                 AulaModel.nombre.label("aula"),
                 PeriodoEscolarModel.nombre.label("periodo"),
-                HorarioModel.total_horas,
-                HorarioModel.dia,
-                HorarioModel.hora_inicio,
-                HorarioModel.hora_fin,
+                DetalleHorarioModel.total_horas,
+                DetalleHorarioModel.dia,
+                DetalleHorarioModel.hora_inicio,
+                DetalleHorarioModel.hora_fin,
             )
+            .join(DetalleHorarioModel,
+                  DetalleHorarioModel.id_horario == HorarioModel.id_horario)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
             .join(AsignacionMateriaModel,
-                  AsignacionMateriaModel.id_asignacion == HorarioModel.id_asignacion)
+                  AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
             .join(DetalleSemestreModel,
                   DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
             .join(SemestreModel,
@@ -206,43 +210,52 @@ class HorarioRepository:
     ) -> HorarioModel:
         h = HorarioModel(
             id_plan_generado=id_plan_generado,
-            id_asignacion=id_asignacion,
             id_docente=id_docente,
             id_aula=id_aula,
+            total_horas=total_horas,
+        )
+        self._s.add(h)
+        self._s.flush()
+        d = DetalleHorarioModel(
+            id_horario=h.id_horario,
+            id_asignacion=id_asignacion,
             dia=dia,
             hora_inicio=hora_inicio,
             hora_fin=hora_fin,
             total_horas=total_horas,
         )
-        self._s.add(h)
+        self._s.add(d)
         self._s.flush()
         return h
 
     def eliminar_horario(self, id_horario: int) -> None:
         h = self._s.query(HorarioModel).get(id_horario)
         if h:
+            # cascade="all, delete-orphan" handles detalles
             self._s.delete(h)
 
     def obtener_horario_por_id(self, id_horario: int) -> tuple | None:
-        """Retorna los IDs y datos necesarios para pre-poblar el formulario de edición."""
+        """Retorna los IDs y datos del PRIMER detalle para pre-poblar el formulario."""
         return (
             self._s.query(
                 HorarioModel.id_horario,
-                HorarioModel.id_asignacion,
+                DetalleHorarioModel.id_asignacion,
                 DetalleSemestreModel.id_semestre,
                 HorarioModel.id_docente,
                 HorarioModel.id_aula,
                 PlanGeneradoModel.id_periodo,
-                HorarioModel.dia,
-                HorarioModel.hora_inicio,
-                HorarioModel.hora_fin,
-                HorarioModel.total_horas,
+                DetalleHorarioModel.dia,
+                DetalleHorarioModel.hora_inicio,
+                DetalleHorarioModel.hora_fin,
+                DetalleHorarioModel.total_horas,
                 PeriodoEscolarModel.nombre.label("periodo_nombre"),
             )
+            .join(DetalleHorarioModel,
+                  DetalleHorarioModel.id_horario == HorarioModel.id_horario)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
             .join(AsignacionMateriaModel,
-                  AsignacionMateriaModel.id_asignacion == HorarioModel.id_asignacion)
+                  AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
             .join(DetalleSemestreModel,
                   DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
             .join(PeriodoEscolarModel,
@@ -265,18 +278,28 @@ class HorarioRepository:
     ) -> None:
         h = self._s.query(HorarioModel).get(id_horario)
         if h:
-            h.id_asignacion = id_asignacion
             h.id_docente    = id_docente
             h.id_aula       = id_aula
-            h.dia           = dia
-            h.hora_inicio   = hora_inicio
-            h.hora_fin      = hora_fin
             h.total_horas   = total_horas
             # Si cambia el periodo, actualizar plan_generado
             pg = h.plan_generado
             if pg.id_periodo != id_periodo:
                 new_pg = self.obtener_o_crear_plan_generado(pg.id_plan, id_periodo)
                 h.id_plan_generado = new_pg.id_plan_generado
+            # Reemplazar detalles: eliminar todos y crear uno nuevo
+            for det in list(h.detalles):
+                self._s.delete(det)
+            self._s.flush()
+            d = DetalleHorarioModel(
+                id_horario=h.id_horario,
+                id_asignacion=id_asignacion,
+                dia=dia,
+                hora_inicio=hora_inicio,
+                hora_fin=hora_fin,
+                total_horas=total_horas,
+            )
+            self._s.add(d)
+            self._s.flush()
 
     # ── Horarios por docente (vista Horario Docente) ─────────
 
@@ -292,16 +315,18 @@ class HorarioRepository:
         """
         q = (
             self._s.query(
-                HorarioModel.dia,
-                HorarioModel.hora_inicio,
-                HorarioModel.hora_fin,
+                DetalleHorarioModel.dia,
+                DetalleHorarioModel.hora_inicio,
+                DetalleHorarioModel.hora_fin,
                 DetalleSemestreModel.nombre_posicion.label("materia"),
                 LiesModel.nombre.label("lies_nombre"),
             )
+            .join(HorarioModel,
+                  HorarioModel.id_horario == DetalleHorarioModel.id_horario)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
             .join(AsignacionMateriaModel,
-                  AsignacionMateriaModel.id_asignacion == HorarioModel.id_asignacion)
+                  AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
             .join(DetalleSemestreModel,
                   DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
             .join(SemestreModel,
@@ -317,7 +342,7 @@ class HorarioRepository:
         if id_semestre is not None:
             q = q.filter(DetalleSemestreModel.id_semestre == id_semestre)
 
-        return q.order_by(HorarioModel.hora_inicio, HorarioModel.dia).all()
+        return q.order_by(DetalleHorarioModel.hora_inicio, DetalleHorarioModel.dia).all()
 
     # ── Filtros en cascada para vista Horario Docente ────────
 
@@ -383,8 +408,10 @@ class HorarioRepository:
                   DetalleSemestreModel.id_semestre == SemestreModel.id_semestre)
             .join(AsignacionMateriaModel,
                   AsignacionMateriaModel.id_detalle == DetalleSemestreModel.id_detalle)
+            .join(DetalleHorarioModel,
+                  DetalleHorarioModel.id_asignacion == AsignacionMateriaModel.id_asignacion)
             .join(HorarioModel,
-                  HorarioModel.id_asignacion == AsignacionMateriaModel.id_asignacion)
+                  HorarioModel.id_horario == DetalleHorarioModel.id_horario)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
             .filter(
@@ -497,8 +524,10 @@ class HorarioRepository:
                   DetalleSemestreModel.id_semestre == SemestreModel.id_semestre)
             .join(AsignacionMateriaModel,
                   AsignacionMateriaModel.id_detalle == DetalleSemestreModel.id_detalle)
+            .join(DetalleHorarioModel,
+                  DetalleHorarioModel.id_asignacion == AsignacionMateriaModel.id_asignacion)
             .join(HorarioModel,
-                  HorarioModel.id_asignacion == AsignacionMateriaModel.id_asignacion)
+                  HorarioModel.id_horario == DetalleHorarioModel.id_horario)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
             .join(PlanEstudiosModel,
@@ -661,15 +690,17 @@ class HorarioRepository:
                 DocenteModel.nombre.label("docente"),
                 AulaModel.nombre.label("aula"),
                 PeriodoEscolarModel.nombre.label("periodo"),
-                HorarioModel.total_horas,
-                HorarioModel.dia,
-                HorarioModel.hora_inicio,
-                HorarioModel.hora_fin,
+                DetalleHorarioModel.total_horas,
+                DetalleHorarioModel.dia,
+                DetalleHorarioModel.hora_inicio,
+                DetalleHorarioModel.hora_fin,
             )
+            .join(DetalleHorarioModel,
+                  DetalleHorarioModel.id_horario == HorarioModel.id_horario)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
             .join(AsignacionMateriaModel,
-                  AsignacionMateriaModel.id_asignacion == HorarioModel.id_asignacion)
+                  AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
             .join(DetalleSemestreModel,
                   DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
             .join(SemestreModel,
@@ -686,9 +717,11 @@ class HorarioRepository:
         )
 
     def eliminar_plan_generado(self, id_plan_generado: int) -> None:
-        """Elimina todos los horarios de un plan_generado y luego el plan_generado."""
-        self._s.query(HorarioModel).filter_by(
-            id_plan_generado=id_plan_generado).delete()
+        """Elimina todos los horarios (con detalles via cascade) y el plan_generado."""
+        horarios = self._s.query(HorarioModel).filter_by(
+            id_plan_generado=id_plan_generado).all()
+        for h in horarios:
+            self._s.delete(h)  # cascade deletes detalles
         pg = self._s.query(PlanGeneradoModel).get(id_plan_generado)
         if pg:
             self._s.delete(pg)
@@ -710,15 +743,17 @@ class HorarioRepository:
         """
         q = (
             self._s.query(
-                HorarioModel.dia,
-                HorarioModel.hora_inicio,
-                HorarioModel.hora_fin,
+                DetalleHorarioModel.dia,
+                DetalleHorarioModel.hora_inicio,
+                DetalleHorarioModel.hora_fin,
                 LiesModel.nombre.label("lies_nombre"),
             )
+            .join(HorarioModel,
+                  HorarioModel.id_horario == DetalleHorarioModel.id_horario)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
             .join(AsignacionMateriaModel,
-                  AsignacionMateriaModel.id_asignacion == HorarioModel.id_asignacion)
+                  AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
             .join(DetalleSemestreModel,
                   DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
             .join(LiesModel,
@@ -750,20 +785,22 @@ class HorarioRepository:
         """
         return (
             self._s.query(
-                HorarioModel.dia,
-                HorarioModel.hora_inicio,
-                HorarioModel.hora_fin,
+                DetalleHorarioModel.dia,
+                DetalleHorarioModel.hora_inicio,
+                DetalleHorarioModel.hora_fin,
                 DetalleSemestreModel.nombre_posicion.label("nombre_materia"),
             )
+            .join(HorarioModel,
+                  HorarioModel.id_horario == DetalleHorarioModel.id_horario)
             .join(PlanGeneradoModel,
                   PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
             .join(AsignacionMateriaModel,
-                  AsignacionMateriaModel.id_asignacion == HorarioModel.id_asignacion)
+                  AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
             .join(DetalleSemestreModel,
                   DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
             .filter(
                 PlanGeneradoModel.id_plan == id_plan,
-                AsignacionMateriaModel.id_materia.isnot(None),  # solo tronco
+                AsignacionMateriaModel.id_materia.isnot(None),
             )
             .all()
         )

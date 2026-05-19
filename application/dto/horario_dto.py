@@ -92,6 +92,8 @@ class GuardarHorarioDTO:
     hora_fin:      str   # "HH:MM"
     total_horas:   int
     id_plan:       int
+    id_lies:       int | None = None  # para separar plan_generado por LIES
+    id_semestre:   int | None = None  # semestre seleccionado (real, no el de la asignación)
 
 
 # ── Fila temporal de horario (formulario) ────────────────────

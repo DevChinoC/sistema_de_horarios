@@ -219,7 +219,8 @@ class HorarioService:
             hi = datetime.strptime(dto.hora_inicio, "%H:%M").time()
             hf = datetime.strptime(dto.hora_fin,    "%H:%M").time()
 
-            pg = repo.obtener_o_crear_plan_generado(dto.id_plan, dto.id_periodo)
+            pg = repo.obtener_o_crear_plan_generado(
+                dto.id_plan, dto.id_periodo, dto.id_lies)
             h  = repo.crear_horario(
                 id_plan_generado=pg.id_plan_generado,
                 id_asignacion=dto.id_asignacion,
@@ -229,6 +230,7 @@ class HorarioService:
                 hora_inicio=hi,
                 hora_fin=hf,
                 total_horas=dto.total_horas,
+                id_semestre=dto.id_semestre,
             )
             repo.commit()
             return True, "Horario guardado correctamente.", h.id_horario
@@ -301,6 +303,7 @@ class HorarioService:
                 hora_inicio=hi,
                 hora_fin=hf,
                 total_horas=dto.total_horas,
+                id_semestre=dto.id_semestre,
             )
             repo.commit()
             return True, "Horario actualizado correctamente."
@@ -572,6 +575,7 @@ class HorarioService:
             nombre_plan: str
             nombre_nivel: str
             nombre_periodo: str
+            nombre_lies: str
 
         session = self._db.get_session()
         try:
@@ -583,6 +587,7 @@ class HorarioService:
                     nombre_plan=r.nombre_plan,
                     nombre_nivel=r.nombre_nivel,
                     nombre_periodo=r.nombre_periodo,
+                    nombre_lies=r.nombre_lies or "",
                 )
                 for idx, r in enumerate(rows, start=1)
             ]

@@ -120,8 +120,10 @@ class PlanGeneradoModel(Base):
     id_plan_generado = Column(Integer, primary_key=True, autoincrement=True)
     id_plan          = Column(Integer, ForeignKey("plan_estudios.id_plan"),      nullable=False)
     id_periodo       = Column(Integer, ForeignKey("periodo_escolar.id_periodo"), nullable=False)
+    id_lies          = Column(Integer, ForeignKey("lies_horarios.id_lies"),      nullable=True)
     plan    = relationship("PlanEstudiosModel",  back_populates="planes_generados")
     periodo = relationship("PeriodoEscolarModel", back_populates="planes_generados")
+    lies    = relationship("LiesModel")
     horarios = relationship("HorarioModel",      back_populates="plan_generado")
 
 
@@ -158,9 +160,11 @@ class DetalleHorarioModel(Base):
     id_detalle_horario = Column(Integer, primary_key=True, autoincrement=True)
     id_horario         = Column(Integer, ForeignKey("horarios.id_horario"), nullable=False)
     id_asignacion      = Column(Integer, ForeignKey("asignacion_materia.id_asignacion"), nullable=False)
+    id_semestre        = Column(Integer, ForeignKey("semestres.id_semestre"), nullable=True)
     dia          = Column(Enum("Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"), nullable=False)
     hora_inicio  = Column(Time,    nullable=False)
     hora_fin     = Column(Time,    nullable=False)
     total_horas  = Column(Integer)
     horario      = relationship("HorarioModel",           back_populates="detalles")
     asignacion   = relationship("AsignacionMateriaModel")
+    semestre     = relationship("SemestreModel")

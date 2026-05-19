@@ -22,6 +22,7 @@ from application.services.horario_service import HorarioService
 from application.dto.horario_docente_dto import HorarioDocenteResumenDTO
 from ui.components.plan_components import Colores, Fuentes
 from ui.pdf.generador_pdf_docente import GeneradorPdfDocente
+from ui.utils.reset_utils import reset_dropdown
 
 # ─────────────────────────────────────────────────────────────
 # Constantes de layout
@@ -132,6 +133,7 @@ class HorarioDocenteView(ft.Container):
 
         # Estado interno
         self._resumen: HorarioDocenteResumenDTO | None = None
+        self._is_resetting: bool = False
 
         # FilePicker para exportar
         self._save_picker = ft.FilePicker(on_result=self._on_save_result)
@@ -393,12 +395,14 @@ class HorarioDocenteView(ft.Container):
 
     def _on_grado_cambiado(self, _) -> None:
         """Al seleccionar grado carga los docentes con horarios en ese grado."""
+        if self._is_resetting:
+            return
         id_nivel = self._dd_grado.value
 
-        for dd in (self._dd_docente, self._dd_periodo, self._dd_plan, self._dd_semestre):
-            dd.value = None
-            dd.options = []
-            dd.disabled = True
+        self._dd_docente  = reset_dropdown(self._dd_docente)
+        self._dd_periodo  = reset_dropdown(self._dd_periodo)
+        self._dd_plan     = reset_dropdown(self._dd_plan)
+        self._dd_semestre = reset_dropdown(self._dd_semestre)
 
         # Refrescar la lista de docentes desde BD
         self._docentes = list(self._service.obtener_docentes())
@@ -417,18 +421,18 @@ class HorarioDocenteView(ft.Container):
         self._ocultar_preview()
 
         if self.page:
-            for dd in (self._dd_docente, self._dd_periodo, self._dd_plan, self._dd_semestre):
-                dd.update()
+            self._page.update()
 
     def _on_docente_cambiado(self, _) -> None:
         """Carga periodos del docente filtrados por grado seleccionado."""
+        if self._is_resetting:
+            return
         id_nivel = self._dd_grado.value
         id_doc   = self._dd_docente.value
 
-        for dd in (self._dd_periodo, self._dd_plan, self._dd_semestre):
-            dd.value = None
-            dd.options = []
-            dd.disabled = True
+        self._dd_periodo  = reset_dropdown(self._dd_periodo)
+        self._dd_plan     = reset_dropdown(self._dd_plan)
+        self._dd_semestre = reset_dropdown(self._dd_semestre)
 
         if id_doc and id_nivel:
             periodos = self._service.obtener_periodos_por_docente_nivel(
@@ -439,19 +443,18 @@ class HorarioDocenteView(ft.Container):
         self._ocultar_preview()
 
         if self.page:
-            for dd in (self._dd_periodo, self._dd_plan, self._dd_semestre):
-                dd.update()
+            self._page.update()
 
     def _on_periodo_cambiado(self, _) -> None:
         """Carga planes del grado+docente+periodo seleccionados."""
+        if self._is_resetting:
+            return
         id_nivel = self._dd_grado.value
         id_doc   = self._dd_docente.value
         id_per   = self._dd_periodo.value
 
-        for dd in (self._dd_plan, self._dd_semestre):
-            dd.value = None
-            dd.options = []
-            dd.disabled = True
+        self._dd_plan     = reset_dropdown(self._dd_plan)
+        self._dd_semestre = reset_dropdown(self._dd_semestre)
 
         if id_doc and id_per and id_nivel:
             planes = self._service.obtener_planes_por_docente_nivel_periodo(
@@ -462,18 +465,17 @@ class HorarioDocenteView(ft.Container):
         self._ocultar_preview()
 
         if self.page:
-            for dd in (self._dd_plan, self._dd_semestre):
-                dd.update()
+            self._page.update()
 
     def _on_plan_cambiado(self, _) -> None:
         """Carga semestres y obtiene el membrete del plan seleccionado."""
+        if self._is_resetting:
+            return
         id_doc  = self._dd_docente.value
         id_per  = self._dd_periodo.value
         id_plan = self._dd_plan.value
 
-        self._dd_semestre.value = None
-        self._dd_semestre.options = []
-        self._dd_semestre.disabled = True
+        self._dd_semestre = reset_dropdown(self._dd_semestre)
 
         if id_doc and id_per and id_plan:
             sems = self._service.obtener_semestres_por_docente_plan_periodo(
@@ -489,7 +491,7 @@ class HorarioDocenteView(ft.Container):
         self._ocultar_preview()
 
         if self.page:
-            self._dd_semestre.update()
+            self._page.update()
 
     # ── Ocultar previsualización al cambiar filtros ───────────
 
@@ -502,13 +504,6 @@ class HorarioDocenteView(ft.Container):
         self._btn_ver.visible = False
         self._btn_exportar.visible = False
         self._panel_prev.visible = False
-
-        if self.page:
-            self._tabla_prev.update()
-            self._lbl_prev.update()
-            self._btn_ver.update()
-            self._btn_exportar.update()
-            self._panel_prev.update()
 
     # ── Generar ───────────────────────────────────────────────
 
@@ -597,11 +592,7 @@ class HorarioDocenteView(ft.Container):
         self._panel_prev.visible = True
 
         if self.page:
-            self._tabla_prev.update()
-            self._lbl_prev.update()
-            self._btn_ver.update()
-            self._btn_exportar.update()
-            self._panel_prev.update()
+            self.update()
 
     # ── Ver Documento (popup) ─────────────────────────────────
 
@@ -691,40 +682,38 @@ class HorarioDocenteView(ft.Container):
     def _limpiar(self) -> None:
         """Regresa al estado inicial: Grado con sus opciones, el resto
         deshabilitado y con hint_text (options vacío)."""
-        # Refrescar niveles por si cambiaron
-        self._niveles = list(self._service.obtener_niveles_con_docente())
+        self._is_resetting = True
+        try:
+            # Refrescar niveles por si cambiaron
+            self._niveles = list(self._service.obtener_niveles_con_docente())
 
-        self._dd_grado.value = None
-        self._dd_grado.options = [
-            _opcion(str(n["id"]), n["nombre"]) for n in self._niveles
-        ]
+            self._dd_grado = reset_dropdown(
+                self._dd_grado,
+                options=[_opcion(str(n["id"]), n["nombre"]) for n in self._niveles],
+                disabled=False,
+            )
 
-        for dd in (self._dd_docente, self._dd_periodo, self._dd_plan, self._dd_semestre):
-            dd.value = None
-            dd.options = []
-            dd.disabled = True
+            self._dd_docente  = reset_dropdown(self._dd_docente)
+            self._dd_periodo  = reset_dropdown(self._dd_periodo)
+            self._dd_plan     = reset_dropdown(self._dd_plan)
+            self._dd_semestre = reset_dropdown(self._dd_semestre)
 
-        # Limpiar membrete y resultado
-        self._ruta_membrete = None
-        self._resumen = None
+            # Limpiar membrete y resultado
+            self._ruta_membrete = None
+            self._resumen = None
 
-        # Ocultar panel de previsualización
-        self._tabla_prev.rows = []
-        self._tabla_prev.visible = False
-        self._lbl_prev.visible = False
-        self._btn_ver.visible = False
-        self._btn_exportar.visible = False
-        self._panel_prev.visible = False
+            # Ocultar panel de previsualización
+            self._tabla_prev.rows = []
+            self._tabla_prev.visible = False
+            self._lbl_prev.visible = False
+            self._btn_ver.visible = False
+            self._btn_exportar.visible = False
+            self._panel_prev.visible = False
+        finally:
+            self._is_resetting = False
 
         if self.page:
-            self._dd_grado.update()
-            for dd in (self._dd_docente, self._dd_periodo, self._dd_plan, self._dd_semestre):
-                dd.update()
-            self._tabla_prev.update()
-            self._lbl_prev.update()
-            self._btn_ver.update()
-            self._btn_exportar.update()
-            self._panel_prev.update()
+            self._page.update()
 
     # ── Mensajes ──────────────────────────────────────────────
 

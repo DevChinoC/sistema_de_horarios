@@ -10,6 +10,7 @@ from application.dto.horario_dto import GuardarHorarioDTO, FilaHorarioDTO
 from ui.components.plan_components import Colores, Fuentes, DialogoConfirmacion
 from ui.pdf.generador_pdf import GeneradorPDF
 from ui.views.horario_state import HorarioStateManager
+from ui.utils.reset_utils import reset_dropdown
 
 # ─────────────────────────────────────────────────────────────
 # Constantes de layout
@@ -462,6 +463,23 @@ class _DropdownConNuevo(ft.Stack):
         self._tf.visible = False
         if self.page:
             self._dd.update()
+            self._tf.update()
+
+    def reset(self, opciones: list[ft.dropdown.Option] | None = None) -> None:
+        """Destruye y recrea el Dropdown interno para forzar limpieza visual.
+
+        Usa ``reset_dropdown`` para evitar el bug de Flet donde
+        ``dropdown.value = None`` no limpia el texto renderizado.
+        """
+        self._dd = reset_dropdown(
+            self._dd,
+            options=opciones if opciones is not None else self._dd.options,
+            disabled=False,
+        )
+        # Reasignar on_change ya que reset_dropdown lo copia del viejo
+        self._dd.on_change = self._on_dd_change
+        self._tf.visible = False
+        if self.page:
             self._tf.update()
 
     # ── Callbacks internos ────────────────────────────────────
@@ -1256,18 +1274,13 @@ class DetallePlanView(ft.Column):
             self._buscador_unidad.desactivar()
             self._dd_unidad.visible = True
             self._btn_buscar_unidad.visible = True
-            if self.page:
-                self._dd_unidad.update()
-                self._btn_buscar_unidad.update()
 
         # Limpiar tabla y sesión al cambiar de semestre
         self._tabla.rows = []
         self._state.limpiar_todo()
 
         if self.page:
-            self._dd_unidad.update()
-            self._tipo_txt.update()
-            self._tabla.update()
+            self._page.update()
 
     # ── Unidad → auto tipo (texto plano, solo lectura) ────────
 
@@ -1615,24 +1628,8 @@ class DetallePlanView(ft.Column):
         self._btn_cancelar.visible = False
 
         # Limpiar campos del formulario (NO el semestre para conservar la tabla)
-        self._dd_unidad.value = None
-        self._tipo_txt.value = ""
-        self._ctrl_aula.value = None
-        self._ctrl_docente.value = None
-        self._campo_periodo.value = ""
+        self._post_agregar_cleanup()
 
-        # Restaurar horario a una fila vacía
-        while len(self._filas_horario) > 1:
-            f = self._filas_horario.pop()
-            self._col_horarios.controls.remove(f)
-        fila = self._filas_horario[0]
-        fila.dd_dia.value = None
-        fila.hora_inicio.set_from_24h("01:00")
-        fila.hora_fin.set_from_24h("01:00")
-        self._actualizar_total(None)
-
-        if self.page:
-            self.update()
         # Mostrar las materias de la sesión actual en la tabla
         self._recargar_tabla()
 
@@ -1735,27 +1732,38 @@ class DetallePlanView(ft.Column):
         ``_guardar_edicion()``; borrarlos aquí eliminaría los datos
         recién cargados.
         """
-        self._dd_unidad.value = None
-        self._ctrl_aula.value = None
-        self._ctrl_docente.value = None
+        self._post_agregar_cleanup()
+
+    def _post_agregar_cleanup(self) -> None:
+        """Capa de restauración visual post-acción.
+
+        Limpia inputs, reinicia dropdowns dependientes y fuerza
+        repaint. NO toca lógica de negocio.
+        """
+        # Reiniciar dropdown de unidad con repaint forzado
+        self._dd_unidad = reset_dropdown(
+            self._dd_unidad,
+            options=list(self._unidad_all_opts),
+            disabled=not self._unidad_all_opts,
+        )
+        self._ctrl_aula.reset()
+        self._ctrl_docente.reset()
         self._campo_periodo.value = ""
         self._tipo_txt.value = ""
 
+        # Restaurar horario a una sola fila vacía
         while len(self._filas_horario) > 1:
             fila = self._filas_horario.pop()
             self._col_horarios.controls.remove(fila)
 
         fila = self._filas_horario[0]
-        fila.dd_dia.value = None
+        fila.dd_dia = reset_dropdown(fila.dd_dia)
         fila.hora_inicio.set_from_24h("07:00")
         fila.hora_fin.set_from_24h("08:00")
         self._actualizar_total(None)
 
         if self.page:
-            self._dd_unidad.update()
-            self._tipo_txt.update()
-            self._campo_periodo.update()
-            self._col_horarios.update()
+            self._page.update()
 
     # ── Reconstrucción de cachés (delegado al state) ──────────
 
@@ -2012,28 +2020,21 @@ class DetallePlanView(ft.Column):
 
     def _volver(self) -> None:
         self._state.limpiar_completo()
-        self._dd_semestre.value = None
-        self._dd_unidad.options = []
-        self._dd_unidad.value = None
-        self._dd_unidad.disabled = True
-        self._tipo_txt.value = ""
-        self._ctrl_aula.value = None
-        self._ctrl_docente.value = None
-        self._campo_periodo.value = ""
-        # Restaurar horario a una fila vacía
-        while len(self._filas_horario) > 1:
-            f = self._filas_horario.pop()
-            self._col_horarios.controls.remove(f)
-        fila = self._filas_horario[0]
-        fila.dd_dia.value = None
-        fila.hora_inicio.set_from_24h("01:00")
-        fila.hora_fin.set_from_24h("01:00")
-        self._actualizar_total(None)
+
+        # Resetear semestre (no cubierto por _post_agregar_cleanup)
+        self._dd_semestre = reset_dropdown(self._dd_semestre, disabled=False)
+
+        # Limpiar formulario completo
+        self._post_agregar_cleanup()
+
+        # Restaurar botones al modo agregar
         self._btn_accion.visible = True
         self._btn_guardar.visible = False
         self._btn_cancelar.visible = False
+
         # Limpiar tabla
         self._tabla.rows = []
+
         # Remover FilePicker del overlay para no acumular
         if self._save_picker in self._page.overlay:
             self._page.overlay.remove(self._save_picker)

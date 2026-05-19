@@ -184,15 +184,19 @@ class HorarioRepository:
     # ── Escritura ─────────────────────────────────────────────
 
     def obtener_o_crear_plan_generado(
-        self, id_plan: int, id_periodo: int
+        self, id_plan: int, id_periodo: int, id_lies: int | None = None,
     ) -> PlanGeneradoModel:
+        filters = {"id_plan": id_plan, "id_periodo": id_periodo}
+        if id_lies is not None:
+            filters["id_lies"] = id_lies
         pg = (
             self._s.query(PlanGeneradoModel)
-            .filter_by(id_plan=id_plan, id_periodo=id_periodo)
+            .filter_by(**filters)
             .first()
         )
         if pg is None:
-            pg = PlanGeneradoModel(id_plan=id_plan, id_periodo=id_periodo)
+            pg = PlanGeneradoModel(
+                id_plan=id_plan, id_periodo=id_periodo, id_lies=id_lies)
             self._s.add(pg)
             self._s.flush()
         return pg
@@ -207,6 +211,7 @@ class HorarioRepository:
         hora_inicio,
         hora_fin,
         total_horas: int,
+        id_semestre: int | None = None,
     ) -> HorarioModel:
         h = HorarioModel(
             id_plan_generado=id_plan_generado,
@@ -219,6 +224,7 @@ class HorarioRepository:
         d = DetalleHorarioModel(
             id_horario=h.id_horario,
             id_asignacion=id_asignacion,
+            id_semestre=id_semestre,
             dia=dia,
             hora_inicio=hora_inicio,
             hora_fin=hora_fin,
@@ -275,6 +281,7 @@ class HorarioRepository:
         hora_inicio,
         hora_fin,
         total_horas: int,
+        id_semestre: int | None = None,
     ) -> None:
         h = self._s.query(HorarioModel).get(id_horario)
         if h:
@@ -284,7 +291,8 @@ class HorarioRepository:
             # Si cambia el periodo, actualizar plan_generado
             pg = h.plan_generado
             if pg.id_periodo != id_periodo:
-                new_pg = self.obtener_o_crear_plan_generado(pg.id_plan, id_periodo)
+                new_pg = self.obtener_o_crear_plan_generado(
+                    pg.id_plan, id_periodo, pg.id_lies)
                 h.id_plan_generado = new_pg.id_plan_generado
             # Reemplazar detalles: eliminar todos y crear uno nuevo
             for det in list(h.detalles):
@@ -293,6 +301,7 @@ class HorarioRepository:
             d = DetalleHorarioModel(
                 id_horario=h.id_horario,
                 id_asignacion=id_asignacion,
+                id_semestre=id_semestre,
                 dia=dia,
                 hora_inicio=hora_inicio,
                 hora_fin=hora_fin,
@@ -312,6 +321,10 @@ class HorarioRepository:
     ) -> list[tuple]:
         """Retorna filas (dia, hora_inicio, hora_fin, materia, lies_nombre)
         del docente en un plan/periodo dados, opcionalmente filtrado por semestre.
+
+        Filtra por ``DetalleHorarioModel.id_semestre`` (el semestre real
+        seleccionado al crear el horario), no por el semestre de la
+        estructura del plan.
         """
         q = (
             self._s.query(
@@ -329,8 +342,6 @@ class HorarioRepository:
                   AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
             .join(DetalleSemestreModel,
                   DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
-            .join(SemestreModel,
-                  SemestreModel.id_semestre == DetalleSemestreModel.id_semestre)
             .join(LiesModel,
                   LiesModel.id_lies == DetalleSemestreModel.id_lies)
             .filter(
@@ -340,9 +351,9 @@ class HorarioRepository:
             )
         )
         if id_semestre is not None:
-            q = q.filter(DetalleSemestreModel.id_semestre == id_semestre)
+            q = q.filter(DetalleHorarioModel.id_semestre == id_semestre)
 
-        return q.order_by(DetalleHorarioModel.hora_inicio, DetalleHorarioModel.dia).all()
+        return q.distinct().order_by(DetalleHorarioModel.hora_inicio, DetalleHorarioModel.dia).all()
 
     # ── Filtros en cascada para vista Horario Docente ────────
 
@@ -400,16 +411,14 @@ class HorarioRepository:
     def obtener_semestres_por_docente_plan_periodo(
         self, id_docente: int, id_plan: int, id_periodo: int,
     ) -> list[SemestreModel]:
-        """Semestres (numero > 0) donde el docente tiene horarios."""
+        """Semestres donde el docente tiene horarios.
+
+        Usa ``DetalleHorarioModel.id_semestre`` (el semestre real guardado
+        al crear el horario) para determinar los semestres disponibles.
+        """
         id_list = [
             r[0] for r in
-            self._s.query(SemestreModel.id_semestre)
-            .join(DetalleSemestreModel,
-                  DetalleSemestreModel.id_semestre == SemestreModel.id_semestre)
-            .join(AsignacionMateriaModel,
-                  AsignacionMateriaModel.id_detalle == DetalleSemestreModel.id_detalle)
-            .join(DetalleHorarioModel,
-                  DetalleHorarioModel.id_asignacion == AsignacionMateriaModel.id_asignacion)
+            self._s.query(DetalleHorarioModel.id_semestre)
             .join(HorarioModel,
                   HorarioModel.id_horario == DetalleHorarioModel.id_horario)
             .join(PlanGeneradoModel,
@@ -418,17 +427,19 @@ class HorarioRepository:
                 HorarioModel.id_docente == id_docente,
                 PlanGeneradoModel.id_plan == id_plan,
                 PlanGeneradoModel.id_periodo == id_periodo,
-                SemestreModel.numero > 0,
+                DetalleHorarioModel.id_semestre.isnot(None),
             )
             .distinct()
             .all()
         ]
         if not id_list:
             return []
-        id_list = list(dict.fromkeys(id_list))  # deduplicar
         return (
             self._s.query(SemestreModel)
-            .filter(SemestreModel.id_semestre.in_(id_list))
+            .filter(
+                SemestreModel.id_semestre.in_(id_list),
+                SemestreModel.numero > 0,
+            )
             .order_by(SemestreModel.numero)
             .all()
         )
@@ -662,13 +673,14 @@ class HorarioRepository:
 
 
     def obtener_historial_planes(self) -> list[tuple]:
-        """Retorna todos los planes_generados con info de plan, nivel y periodo."""
+        """Retorna todos los planes_generados con info de plan, nivel, periodo y LIES."""
         return (
             self._s.query(
                 PlanGeneradoModel.id_plan_generado,
                 PlanEstudiosModel.nombre.label("nombre_plan"),
                 NivelAcademicoModel.nombre.label("nombre_nivel"),
                 PeriodoEscolarModel.nombre.label("nombre_periodo"),
+                LiesModel.nombre.label("nombre_lies"),
             )
             .join(PlanEstudiosModel,
                   PlanEstudiosModel.id_plan == PlanGeneradoModel.id_plan)
@@ -676,6 +688,8 @@ class HorarioRepository:
                   NivelAcademicoModel.id_nivel == PlanEstudiosModel.id_nivel)
             .join(PeriodoEscolarModel,
                   PeriodoEscolarModel.id_periodo == PlanGeneradoModel.id_periodo)
+            .outerjoin(LiesModel,
+                       LiesModel.id_lies == PlanGeneradoModel.id_lies)
             .order_by(PlanGeneradoModel.id_plan_generado.desc())
             .all()
         )

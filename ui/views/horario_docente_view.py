@@ -562,7 +562,10 @@ class HorarioDocenteView(ft.Container):
         for f in filas:
             if f.dia and f.hora_inicio:
                 key = (f.dia, f.hora_inicio)
-                mapa.setdefault(key, set()).add(f.nombre_materia)
+                label = f.nombre_materia
+                if f.nombre_lies:
+                    label += f" ({f.nombre_lies})"
+                mapa.setdefault(key, set()).add(label)
 
         rows = []
         for (hi, hf) in franjas:
@@ -714,7 +717,14 @@ class HorarioDocenteView(ft.Container):
         self._panel_prev.visible = False
 
         if self.page:
-            self.update()
+            self._dd_grado.update()
+            for dd in (self._dd_docente, self._dd_periodo, self._dd_plan, self._dd_semestre):
+                dd.update()
+            self._tabla_prev.update()
+            self._lbl_prev.update()
+            self._btn_ver.update()
+            self._btn_exportar.update()
+            self._panel_prev.update()
 
     # ── Mensajes ──────────────────────────────────────────────
 

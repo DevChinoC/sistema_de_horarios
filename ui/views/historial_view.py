@@ -199,7 +199,7 @@ class HistorialView(ft.Container):
                     c, size=11, weight=ft.FontWeight.W_600,
                     font_family=Fuentes.CAMPOS, color=Colores.BLANCO))
                 for c in ["Clave", "Grado", "Planes de estudios",
-                           "Periodo", "Semestre", "Acción"]
+                           "Periodo", "LIES", "Semestre", "Acción"]
             ],
             rows=[],
             heading_row_color=Colores.AZUL_PRIMARIO,
@@ -415,11 +415,17 @@ class HistorialView(ft.Container):
         self._lbl_seleccion.color = Colores.TEXTO_MUTED
         self._lbl_seleccion.italic = True
 
-        if self.page:
-            self.update()
-
-        # Recargar datos y niveles desde BD
+        # Recargar datos y niveles desde BD (antes de actualizar UI)
         self._cargar_datos()
+
+        # Actualizar CADA control individualmente
+        if self.page:
+            for dd in (self._dd_grado, self._dd_periodo, self._dd_plan, self._dd_semestre):
+                dd.update()
+            self._tabla.update()
+            self._panel_tabla.update()
+            self._btn_exportar.update()
+            self._lbl_seleccion.update()
 
     def _renderizar_tabla(self, items: list) -> None:
         """Construye las filas de la tabla con los items dados."""
@@ -436,6 +442,8 @@ class HistorialView(ft.Container):
                     ft.DataCell(ft.Text(item.nombre_plan, size=12,
                                          font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
                     ft.DataCell(ft.Text(item.nombre_periodo, size=12,
+                                         font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
+                    ft.DataCell(ft.Text(item.nombre_lies if item.nombre_lies else "—", size=12,
                                          font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
                     ft.DataCell(ft.Text("Semestre 1", size=12,
                                          font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),

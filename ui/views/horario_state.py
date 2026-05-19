@@ -73,8 +73,15 @@ class HorarioStateManager:
 
     def registrar_tronco(
         self, id_sem: int, id_materia: int, filas: list,
+        id_lies: int | None = None,
+        id_aula: int | None = None,
+        id_docente: int | None = None,
     ) -> None:
-        """Agrega horas al caché de tronco, evitando duplicados."""
+        """Agrega horas al caché de tronco, evitando duplicados.
+
+        Guarda también el contexto cross-LIES (id_lies, id_aula, id_docente)
+        para poder validar consistencia entre LIES.
+        """
         if id_sem not in self.tronco_horas:
             self.tronco_horas[id_sem] = {}
         if id_materia not in self.tronco_horas[id_sem]:
@@ -85,6 +92,13 @@ class HorarioStateManager:
         }
         for f in filas:
             d = self._fila_to_dict(f)
+            # Inyectar contexto cross-LIES
+            if id_lies is not None:
+                d["id_lies"] = id_lies
+            if id_aula is not None:
+                d["id_aula"] = id_aula
+            if id_docente is not None:
+                d["id_docente"] = id_docente
             key = (d["dia"], d["hora_inicio"], d["hora_fin"])
             if key not in existing:
                 self.tronco_horas[id_sem][id_materia].append(d)
@@ -133,11 +147,14 @@ class HorarioStateManager:
         id_sem: int | None,
         filas: list,
         id_horario_excluir: int | None = None,
+        id_aula: int | None = None,
+        id_docente: int | None = None,
     ) -> str | None:
         """Valida reglas de horario.  Retorna mensaje de error o None.
 
         Reglas:
-        1. Misma materia de tronco en otra LIES → mismos días y horas.
+        1. Misma materia de tronco en otra LIES → debe coincidir en día,
+           hora, aula y docente.
         2. Diferente materia de tronco → no puede solaparse en mismo día.
         3. Optativa → no puede solaparse con tronco común en mismo día.
         4. Optativas dentro de la misma LIES → no pueden solaparse en mismo día.
@@ -149,7 +166,44 @@ class HorarioStateManager:
         filas_d = [self._fila_to_dict(f) for f in filas]
 
         if es_tronco and id_materia is not None:
-            # ── Regla: otra materia de tronco → sin solapamiento (por día)
+            # ── Regla 1: misma materia en OTRA LIES → exigir igualdad exacta
+            existing_same = sem_cache.get(id_materia, [])
+            cross_lies = [
+                h for h in existing_same
+                if h.get("id_lies") and h["id_lies"] != self.id_lies_activa
+            ]
+            if cross_lies:
+                for f in filas_d:
+                    match = False
+                    for h_ex in cross_lies:
+                        if (f["dia"] == h_ex["dia"]
+                                and f["hora_inicio"] == h_ex["hora_inicio"]
+                                and f["hora_fin"] == h_ex["hora_fin"]):
+                            # Verificar aula y docente si están disponibles
+                            if id_aula is not None and h_ex.get("id_aula"):
+                                if id_aula != h_ex["id_aula"]:
+                                    return (
+                                        f"Esta materia de tronco común ya fue asignada "
+                                        f"en otra LIES con un aula diferente.\n"
+                                        f"Debe coincidir en día, hora, aula y docente."
+                                    )
+                            if id_docente is not None and h_ex.get("id_docente"):
+                                if id_docente != h_ex["id_docente"]:
+                                    return (
+                                        f"Esta materia de tronco común ya fue asignada "
+                                        f"en otra LIES con un docente diferente.\n"
+                                        f"Debe coincidir en día, hora, aula y docente."
+                                    )
+                            match = True
+                            break
+                    if not match:
+                        return (
+                            f"Esta materia de tronco común ya fue asignada en otra "
+                            f"LIES con diferente horario.\nDebe coincidir en día, "
+                            f"hora, aula y docente."
+                        )
+
+            # ── Regla 2: otra materia de tronco → sin solapamiento (por día)
             for mat_id, mat_hrs in sem_cache.items():
                 if mat_id == id_materia:
                     continue
@@ -248,7 +302,15 @@ class HorarioStateManager:
 
     @staticmethod
     def _fila_to_dict(f) -> dict:
-        """Convierte FilaHorarioDTO o dict a dict estándar."""
+        """Convierte FilaHorarioDTO o dict a dict estándar.
+
+        Preserva campos opcionales de contexto cross-LIES
+        (id_lies, id_aula, id_docente) si están presentes.
+        """
         if isinstance(f, dict):
             return f
-        return {"dia": f.dia, "hora_inicio": f.hora_inicio, "hora_fin": f.hora_fin}
+        d = {"dia": f.dia, "hora_inicio": f.hora_inicio, "hora_fin": f.hora_fin}
+        for k in ("id_lies", "id_aula", "id_docente"):
+            if hasattr(f, k):
+                d[k] = getattr(f, k)
+        return d

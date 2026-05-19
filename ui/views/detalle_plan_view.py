@@ -1465,7 +1465,10 @@ class DetallePlanView(ft.Column):
             return
 
         # ── Validación de tronco común (por semestre) ──────────
-        error = self._state.validar_horario(es_tronco, id_materia, id_sem, filas_validas)
+        error = self._state.validar_horario(
+            es_tronco, id_materia, id_sem, filas_validas,
+            id_aula=int(id_aula), id_docente=int(id_doc),
+        )
         if error:
             self._msg(error); return
 
@@ -1480,6 +1483,8 @@ class DetallePlanView(ft.Column):
                 dia=f.dia, hora_inicio=f.hora_inicio,
                 hora_fin=f.hora_fin,
                 total_horas=f.delta, id_plan=self._id_plan,
+                id_lies=self._id_lies_activa,
+                id_semestre=id_sem,
             ))
             if not ok:
                 self._msg(msg); return
@@ -1489,7 +1494,12 @@ class DetallePlanView(ft.Column):
 
         # ── Actualizar caché de tronco u optativa ─────────────
         if es_tronco and id_materia is not None and id_sem is not None:
-            self._state.registrar_tronco(id_sem, id_materia, filas_validas)
+            self._state.registrar_tronco(
+                id_sem, id_materia, filas_validas,
+                id_lies=self._id_lies_activa,
+                id_aula=int(id_aula),
+                id_docente=int(id_doc),
+            )
         elif not es_tronco and id_sem is not None:
             for fila_d, id_h in zip(filas_validas, ids_nuevos):
                 self._state.registrar_optativa(
@@ -1654,6 +1664,7 @@ class DetallePlanView(ft.Column):
         error = self._state.validar_horario(
             es_tronco, id_materia, id_sem, filas_validas,
             id_horario_excluir=self._state.editando_id,
+            id_aula=int(id_aula), id_docente=int(id_doc),
         )
         if error:
             self._msg(error); return
@@ -1670,6 +1681,8 @@ class DetallePlanView(ft.Column):
                 dia=f0.dia, hora_inicio=f0.hora_inicio,
                 hora_fin=f0.hora_fin,
                 total_horas=f0.delta, id_plan=self._id_plan,
+                id_lies=self._id_lies_activa,
+                id_semestre=id_sem,
             ),
         )
 
@@ -1688,6 +1701,8 @@ class DetallePlanView(ft.Column):
                 dia=f.dia, hora_inicio=f.hora_inicio,
                 hora_fin=f.hora_fin,
                 total_horas=f.delta, id_plan=self._id_plan,
+                id_lies=self._id_lies_activa,
+                id_semestre=id_sem,
             ))
             if not ok_n:
                 self._msg(msg_n); break
@@ -1696,7 +1711,12 @@ class DetallePlanView(ft.Column):
 
         # ── Actualizar caché de tronco u optativa ─────────────
         if es_tronco and id_materia is not None and id_sem is not None:
-            self._state.registrar_tronco(id_sem, id_materia, filas_validas)
+            self._state.registrar_tronco(
+                id_sem, id_materia, filas_validas,
+                id_lies=self._id_lies_activa,
+                id_aula=int(id_aula),
+                id_docente=int(id_doc),
+            )
         elif not es_tronco and id_sem is not None and self._state.editando_id is not None:
             self._state.actualizar_optativa(
                 self._id_lies_activa, id_sem, filas_validas, self._state.editando_id)
@@ -1708,7 +1728,13 @@ class DetallePlanView(ft.Column):
     # ── Limpieza de formulario ─────────────────────────────────
 
     def _limpiar_formulario(self) -> None:
-        """Reinicia todos los campos del formulario al estado vacío."""
+        """Reinicia los campos del formulario al estado vacío.
+
+        NO limpia el semestre ni la tabla porque este método se invoca
+        justo después de ``_recargar_tabla()`` en ``_agregar()`` y
+        ``_guardar_edicion()``; borrarlos aquí eliminaría los datos
+        recién cargados.
+        """
         self._dd_unidad.value = None
         self._ctrl_aula.value = None
         self._ctrl_docente.value = None
@@ -1726,7 +1752,10 @@ class DetallePlanView(ft.Column):
         self._actualizar_total(None)
 
         if self.page:
-            self.update()
+            self._dd_unidad.update()
+            self._tipo_txt.update()
+            self._campo_periodo.update()
+            self._col_horarios.update()
 
     # ── Reconstrucción de cachés (delegado al state) ──────────
 

@@ -20,6 +20,7 @@ import flet as ft
 
 from application.services.horario_service import HorarioService
 from ui.components.plan_components import Colores, Fuentes, DialogoConfirmacion
+from ui.utils.reset_utils import reset_dropdown
 
 # ─────────────────────────────────────────────────────────────
 # Helpers de estilo
@@ -90,6 +91,7 @@ class HistorialView(ft.Container):
 
         # Niveles disponibles (cargados en did_mount)
         self._niveles: list[dict] = []
+        self._is_resetting: bool = False
 
         # ════════ DROPDOWNS ════════
 
@@ -293,12 +295,13 @@ class HistorialView(ft.Container):
 
     def _on_grado_cambiado(self, _) -> None:
         """Al seleccionar Grado, carga Periodos disponibles para ese grado."""
+        if self._is_resetting:
+            return
         id_nivel = self._dd_grado.value
 
-        for dd in (self._dd_periodo, self._dd_plan, self._dd_semestre):
-            dd.value = None
-            dd.options = []
-            dd.disabled = True
+        self._dd_periodo  = reset_dropdown(self._dd_periodo)
+        self._dd_plan     = reset_dropdown(self._dd_plan)
+        self._dd_semestre = reset_dropdown(self._dd_semestre)
 
         if id_nivel:
             periodos = self._service.obtener_periodos_por_nivel(int(id_nivel))
@@ -306,18 +309,17 @@ class HistorialView(ft.Container):
             self._dd_periodo.disabled = (len(periodos) == 0)
 
         if self.page:
-            for dd in (self._dd_periodo, self._dd_plan, self._dd_semestre):
-                dd.update()
+            self._page.update()
 
     def _on_periodo_cambiado(self, _) -> None:
         """Al seleccionar Periodo, carga Planes del grado+periodo."""
+        if self._is_resetting:
+            return
         id_nivel = self._dd_grado.value
         id_per   = self._dd_periodo.value
 
-        for dd in (self._dd_plan, self._dd_semestre):
-            dd.value = None
-            dd.options = []
-            dd.disabled = True
+        self._dd_plan     = reset_dropdown(self._dd_plan)
+        self._dd_semestre = reset_dropdown(self._dd_semestre)
 
         if id_nivel and id_per:
             planes = self._service.obtener_planes_por_nivel_periodo(
@@ -326,18 +328,17 @@ class HistorialView(ft.Container):
             self._dd_plan.disabled = (len(planes) == 0)
 
         if self.page:
-            for dd in (self._dd_plan, self._dd_semestre):
-                dd.update()
+            self._page.update()
 
     def _on_plan_cambiado(self, _) -> None:
         """Al seleccionar Plan, carga Semestres del grado+periodo+plan."""
+        if self._is_resetting:
+            return
         id_nivel = self._dd_grado.value
         id_per   = self._dd_periodo.value
         id_plan  = self._dd_plan.value
 
-        self._dd_semestre.value = None
-        self._dd_semestre.options = []
-        self._dd_semestre.disabled = True
+        self._dd_semestre = reset_dropdown(self._dd_semestre)
 
         if id_nivel and id_per and id_plan:
             semestres = self._service.obtener_semestres_por_nivel_plan_periodo(
@@ -348,7 +349,7 @@ class HistorialView(ft.Container):
             self._dd_semestre.disabled = (len(semestres) == 0)
 
         if self.page:
-            self._dd_semestre.update()
+            self._page.update()
 
     def _on_filtro_cambiado(self, _) -> None:
         pass  # filtrar al pulsar «Buscar»
@@ -397,35 +398,36 @@ class HistorialView(ft.Container):
 
     def _limpiar_filtros(self) -> None:
         """Regresa al estado inicial: solo Grado con opciones, el resto oculto."""
-        # Resetear dropdowns en cascada
-        self._dd_grado.value = None
+        self._restaurar_estado_inicial()
 
-        for dd in (self._dd_periodo, self._dd_plan, self._dd_semestre):
-            dd.value = None
-            dd.options = []
-            dd.disabled = True
+    def _restaurar_estado_inicial(self) -> None:
+        """Reinicia TODOS los controles al estado visual inicial."""
+        self._is_resetting = True
+        try:
+            # Resetear dropdowns en cascada
+            self._dd_grado    = reset_dropdown(self._dd_grado, disabled=False)
+            self._dd_periodo  = reset_dropdown(self._dd_periodo)
+            self._dd_plan     = reset_dropdown(self._dd_plan)
+            self._dd_semestre = reset_dropdown(self._dd_semestre)
 
-        # Ocultar tabla y limpiar selección
-        self._tabla.rows = []
-        self._filtrado = []
-        self._selected_item = None
-        self._panel_tabla.visible = False
-        self._btn_exportar.disabled = True
-        self._lbl_seleccion.value = "Selecciona una fila para exportar"
-        self._lbl_seleccion.color = Colores.TEXTO_MUTED
-        self._lbl_seleccion.italic = True
+            # Ocultar tabla y limpiar selección
+            self._tabla.rows = []
+            self._filtrado = []
+            self._selected_item = None
+            self._panel_tabla.visible = False
+            self._btn_exportar.disabled = True
+            self._lbl_seleccion.value = "Selecciona una fila para exportar"
+            self._lbl_seleccion.color = Colores.TEXTO_MUTED
+            self._lbl_seleccion.italic = True
+        finally:
+            self._is_resetting = False
 
-        # Recargar datos y niveles desde BD (antes de actualizar UI)
-        self._cargar_datos()
-
-        # Actualizar CADA control individualmente
+        # Montar los nuevos dropdowns en la página ANTES de cargar datos
         if self.page:
-            for dd in (self._dd_grado, self._dd_periodo, self._dd_plan, self._dd_semestre):
-                dd.update()
-            self._tabla.update()
-            self._panel_tabla.update()
-            self._btn_exportar.update()
-            self._lbl_seleccion.update()
+            self._page.update()
+
+        # Recargar datos y niveles desde BD (los dd ya están montados)
+        self._cargar_datos()
 
     def _renderizar_tabla(self, items: list) -> None:
         """Construye las filas de la tabla con los items dados."""
@@ -484,9 +486,7 @@ class HistorialView(ft.Container):
         self._lbl_seleccion.italic = True
 
         if self.page:
-            self._tabla.update()
-            self._btn_exportar.update()
-            self._lbl_seleccion.update()
+            self.update()
 
     # ── Wrappers para functools.partial ─────────────────────────
 

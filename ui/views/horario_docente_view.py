@@ -289,14 +289,15 @@ class HorarioDocenteView(ft.Container):
             ],
             rows=[],
             heading_row_color=Colores.AZUL_PRIMARIO,
-            heading_row_height=36,
-            data_row_max_height=56,
-            column_spacing=8,
-            horizontal_margin=8,
+            heading_row_height=48,
+            data_row_min_height=70,
+            data_row_max_height=None,
+            column_spacing=0,
+            horizontal_margin=0,
+            divider_thickness=0,
             border=ft.border.all(1, _NEGRO),
             border_radius=0,
             visible=False,
-            expand=True,
         )
 
         # ════════ BOTONES INFERIORES ════════
@@ -350,7 +351,21 @@ class HorarioDocenteView(ft.Container):
                 controls=[
                     self._lbl_prev,
                     ft.Container(height=8),
-                    ft.Row(controls=[self._tabla_prev], scroll=ft.ScrollMode.AUTO),
+                    ft.Container(
+                        width=float("inf"),
+                        alignment=ft.alignment.center,
+                        content=ft.Row(
+                            controls=[
+                                ft.Container(
+                                    alignment=ft.alignment.center,
+                                    content=self._tabla_prev,
+                                )
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            scroll=ft.ScrollMode.AUTO,
+                        ),
+                    ),
+
                     ft.Container(height=14),
                     fila_botones,
                 ],
@@ -566,20 +581,37 @@ class HorarioDocenteView(ft.Container):
         for (hi, hf) in franjas:
             hora_txt = f"{hi} - {hf}"
             cells = [
-                ft.DataCell(ft.Text(hora_txt, size=11,
-                                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO,
-                                    weight=ft.FontWeight.W_600)),
+                ft.DataCell(
+                    ft.Container(
+                        width=140,
+                        alignment=ft.alignment.center,
+                        content=ft.Text(
+                            hora_txt,
+                            size=11,
+                            text_align=ft.TextAlign.CENTER,
+                            font_family=Fuentes.CAMPOS,
+                            color=Colores.TEXTO,
+                            weight=ft.FontWeight.W_600,
+                        ),
+                    )
+                ),
             ]
             for dia in _DIAS:
                 materias_set = mapa.get((dia, hi), set())
                 materia = "\n".join(sorted(materias_set))
                 cell_content = ft.Container(
-                    content=ft.Text(materia, size=10,
-                                    font_family=Fuentes.CAMPOS, color=Colores.TEXTO),
+                    width=220,
+                    alignment=ft.alignment.center,
                     bgcolor="#B5CBF7" if materia else None,
-                    padding=ft.padding.all(4),
-                    border_radius=2,
-                    width=120,
+                    padding=ft.padding.all(6),
+                    content=ft.Text(
+                        materia,
+                        size=10,
+                        text_align=ft.TextAlign.CENTER,
+                        font_family=Fuentes.CAMPOS,
+                        color=Colores.TEXTO,
+                        no_wrap=False,
+                    ),
                 )
                 cells.append(ft.DataCell(cell_content))
             rows.append(ft.DataRow(cells=cells))
@@ -601,8 +633,10 @@ class HorarioDocenteView(ft.Container):
             self._msg("Primero genera el horario.")
             return
 
+        import time as _time
+        _ts = int(_time.time())
         ruta_pdf = os.path.join(tempfile.gettempdir(),
-                                 f"preview_docente_{id(self)}.pdf")
+                                 f"preview_docente_{_ts}.pdf")
         try:
             GeneradorPdfDocente(
                 resumen=self._resumen,

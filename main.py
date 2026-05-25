@@ -1,10 +1,13 @@
 import flet as ft
 
+from application.container import Container
 from application.services.planes_service import PlanesService
 from application.services.plan_estudios_service import PlanEstudiosService
-from application.services.horario_service import HorarioService
 from ui.components.plan_components import Colores, Fuentes
 from ui.navigation.navegador import Navegador
+
+# Contenedor global de dependencias
+_container = Container()
 
 
 def main(page: ft.Page) -> None:
@@ -32,12 +35,12 @@ def main(page: ft.Page) -> None:
         Fuentes.CAMPOS:  "https://raw.githubusercontent.com/google/fonts/main/ofl/robotocondensed/RobotoCondensed%5Bwght%5D.ttf",
     }
 
-    # ── Navegación ────────────────────────────────────────────
+    # ── Navegación (Container provee HorarioService singleton) ─
     nav = Navegador(
         page=page,
         planes_service=PlanesService(),
         plan_service=PlanEstudiosService(),
-        horario_service=HorarioService(),
+        horario_service=_container.horario_service(),
     )
     nav.ir_a_planes()
 

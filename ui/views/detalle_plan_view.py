@@ -9,8 +9,18 @@ from application.services.horario_service import HorarioService
 from application.dto.horario_dto import GuardarHorarioDTO, FilaHorarioDTO
 from ui.components.plan_components import Colores, Fuentes, DialogoConfirmacion
 from ui.pdf.generador_pdf import GeneradorPDF
-from ui.views.horario_state import HorarioStateManager
+from application.state.detalle_plan_state import DetallePlanState
+from application.controllers.detalle_plan_controller import DetallePlanController
+
 from ui.utils.reset_utils import reset_dropdown
+from ui.components.time_picker import ScrollTimePicker
+from ui.components.fila_horario import FilaHorario as _FilaHorario
+from ui.components.dropdown_con_nuevo import DropdownConNuevo as _DropdownConNuevo
+from ui.components.buscador_unidad import BuscadorUnidad as _BuscadorUnidad
+from application.mappers.horario_mapper import HorarioMapper
+from application.mappers.opciones_mapper import OpcionesMapper
+from application.presenters.detalle_plan_presenter import DetallePlanPresenter
+from ui.builders.horario_row_builder import HorarioRowBuilder
 
 # ─────────────────────────────────────────────────────────────
 # Constantes de layout
@@ -151,503 +161,6 @@ class _Cabecera(ft.Container):
 
 
 # ─────────────────────────────────────────────────────────────
-# Picker de hora con scroll, touchpad, teclado (↑ / ↓) y botones
-# ─────────────────────────────────────────────────────────────
-class _ScrollColumn(ft.Container):
-    """Columna de valor con botones ▲/▼, scroll del mouse,
-    arrastre vertical (touchpad) y teclas ↑ / ↓ del teclado.
-
-    Al hacer clic se enfoca el control (borde azul); las flechas
-    del teclado cambian el valor.  Solo una instancia puede estar
-    enfocada a la vez.
-
-    Se usa ft.Container como base (no ft.Column) para evitar
-    problemas de layout cuando se inserta dentro de ft.Row.
-    """
-
-    _focused_instance: "_ScrollColumn | None" = None  # instancia enfocada
-
-    def __init__(
-        self,
-        items: list[str],
-        initial: int = 0,
-        width: int = 36,
-        on_change: Callable | None = None,
-    ) -> None:
-        self._items     = items
-        self._selected  = initial
-        self._on_change = on_change
-        self._drag_accum = 0.0  # acumulador para touchpad
-
-        self._txt = ft.Text(
-            items[initial], size=14, weight=ft.FontWeight.W_700,
-            color=_NEGRO, font_family=Fuentes.CAMPOS,
-            text_align=ft.TextAlign.CENTER,
-        )
-        self._box = ft.Container(
-            content=self._txt,
-            width=width, height=30,
-            alignment=ft.alignment.center,
-            border=ft.border.all(1, Colores.BORDE),
-            border_radius=4,
-            bgcolor=Colores.BLANCO,
-        )
-
-        # Botón ▲
-        btn_up = ft.Container(
-            content=ft.Icon(ft.Icons.ARROW_DROP_UP,
-                            size=18, color=Colores.TEXTO_MUTED),
-            on_click=lambda _: self._move(-1),
-            width=width, height=16,
-            alignment=ft.alignment.center,
-            ink=True,
-        )
-        # Botón ▼
-        btn_down = ft.Container(
-            content=ft.Icon(ft.Icons.ARROW_DROP_DOWN,
-                            size=18, color=Colores.TEXTO_MUTED),
-            on_click=lambda _: self._move(1),
-            width=width, height=16,
-            alignment=ft.alignment.center,
-            ink=True,
-        )
-
-        # GestureDetector envuelve la caja para scroll + touchpad + clic
-        self._gesture = ft.GestureDetector(
-            content=self._box,
-            on_scroll=self._on_scroll,
-            on_tap=self._on_tap,
-            on_vertical_drag_update=self._on_drag,
-        )
-
-        # Columna interna con altura fija para evitar layout unbounded
-        inner = ft.Column(
-            controls=[btn_up, self._gesture, btn_down],
-            spacing=0,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        )
-
-        super().__init__(
-            content=inner,
-            width=width,
-            height=62,  # 16 + 30 + 16
-        )
-
-    # ── Ciclo de vida ──────────────────────────────────────
-
-    def did_mount(self) -> None:
-        """Registrar handler de teclado global (siempre re-registra)."""
-        if self.page:
-            self.page.on_keyboard_event = _ScrollColumn._global_on_key
-
-    def will_unmount(self) -> None:
-        """Limpiar referencia si esta instancia estaba enfocada."""
-        if _ScrollColumn._focused_instance is self:
-            _ScrollColumn._focused_instance = None
-
-    # ── Interacción: scroll (rueda del mouse) ──────────────
-
-    def _on_scroll(self, e: ft.ScrollEvent) -> None:
-        self._move(-1 if e.scroll_delta_y < 0 else 1)
-
-    # ── Interacción: arrastre vertical (touchpad) ──────────
-
-    def _on_drag(self, e) -> None:
-        self._drag_accum += e.delta_y
-        threshold = 20  # píxeles antes de cambiar valor
-        if abs(self._drag_accum) >= threshold:
-            direction = 1 if self._drag_accum > 0 else -1
-            self._move(direction)
-            self._drag_accum = 0.0
-
-    # ── Interacción: clic para enfocar ─────────────────────
-
-    def _on_tap(self, _) -> None:
-        prev = _ScrollColumn._focused_instance
-        if prev is not None and prev is not self:
-            prev._lose_focus()
-        _ScrollColumn._focused_instance = self
-        self._box.border = ft.border.all(2, Colores.AZUL_PRIMARIO)
-        if self.page:
-            self._box.update()
-
-    def _lose_focus(self) -> None:
-        self._box.border = ft.border.all(1, Colores.BORDE)
-        if self.page:
-            self._box.update()
-
-    # ── Interacción: teclado (↑ / ↓) ──────────────────────
-
-    @staticmethod
-    def _global_on_key(e: ft.KeyboardEvent) -> None:
-        inst = _ScrollColumn._focused_instance
-        if inst is None:
-            return
-        if e.key == "Arrow Up":
-            inst._move(-1)
-        elif e.key == "Arrow Down":
-            inst._move(1)
-
-    # ── Lógica compartida ─────────────────────────────────
-
-    def _move(self, direction: int) -> None:
-        self._select((self._selected + direction) % len(self._items))
-
-    def _select(self, idx: int) -> None:
-        self._selected = idx
-        self._txt.value = self._items[idx]
-        if self.page:
-            self._txt.update()
-        if self._on_change:
-            self._on_change(self._items[idx])
-
-    @property
-    def value(self) -> str:
-        return self._items[self._selected]
-
-    @value.setter
-    def value(self, v: str) -> None:
-        if v in self._items:
-            self._select(self._items.index(v))
-
-
-class _ScrollTimePicker(ft.Row):
-    """Picker HH : MM  A.M/P.M controlado con rueda del mouse."""
-
-    _HOURS = [f"{h}" for h in range(1, 13)]
-    _MINS  = [f"{m:02d}" for m in range(0, 60)]
-    _AMPM  = ["A.M", "P.M"]
-
-    def __init__(self, on_change: Callable | None = None) -> None:
-        self._on_change = on_change
-        self._h  = _ScrollColumn(self._HOURS, 0, 34, lambda _: self._notify())
-        self._m  = _ScrollColumn(self._MINS,  0, 34, lambda _: self._notify())
-        self._ap = _ScrollColumn(self._AMPM,  0, 42, lambda _: self._notify())
-
-        super().__init__(
-            controls=[
-                self._h,
-                ft.Text(":", size=15, weight=ft.FontWeight.BOLD,
-                        color=_NEGRO, font_family=Fuentes.CAMPOS),
-                self._m,
-                ft.Container(width=4),
-                self._ap,
-            ],
-            spacing=2,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
-
-    def _notify(self) -> None:
-        if self._on_change:
-            self._on_change(None)
-
-    def get_24h(self) -> str:
-        h, m = int(self._h.value), int(self._m.value)
-        if self._ap.value == "A.M":
-            h = 0 if h == 12 else h
-        else:
-            h = h if h == 12 else h + 12
-        return f"{h:02d}:{m:02d}"
-
-    def set_from_24h(self, valor_24h: str) -> None:
-        """Establece el picker a partir de un valor HH:MM en formato 24h."""
-        try:
-            parts = valor_24h.split(":")
-            h24, m = int(parts[0]), int(parts[1])
-            if h24 == 0:
-                h12, ap = 12, "A.M"
-            elif h24 < 12:
-                h12, ap = h24, "A.M"
-            elif h24 == 12:
-                h12, ap = 12, "P.M"
-            else:
-                h12, ap = h24 - 12, "P.M"
-            self._h.value  = str(h12)
-            self._m.value  = f"{m:02d}"
-            self._ap.value = ap
-        except (ValueError, IndexError):
-            pass
-
-    @property
-    def value(self) -> str:
-        return self.get_24h()
-
-
-# ─────────────────────────────────────────────────────────────
-# Fila de horario: Día | Hora inicio | Hora fin | [×]
-# ─────────────────────────────────────────────────────────────
-class _FilaHorario(ft.Row):
-    _DIAS = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
-
-    def __init__(self, on_quitar: Callable, on_change: Callable) -> None:
-        self.dd_dia = ft.Dropdown(
-            hint_text="Seleccionar dia",
-            options=[_opcion(d, d) for d in self._DIAS],
-            menu_height=150,
-            **_dd_kw(_W_DIA),
-        )
-        self.hora_inicio = _ScrollTimePicker(on_change=on_change)
-        self.hora_fin    = _ScrollTimePicker(on_change=on_change)
-        btn_quitar = ft.IconButton(
-            icon=ft.Icons.REMOVE_CIRCLE_OUTLINE,
-            icon_color=Colores.ROJO, icon_size=18,
-            on_click=lambda _: on_quitar(self),
-            tooltip="Quitar fila",
-        )
-        super().__init__(
-            controls=[self.dd_dia, self.hora_inicio,
-                       self.hora_fin, btn_quitar],
-            spacing=8,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
-
-
-# ─────────────────────────────────────────────────────────────
-# Dropdown que se convierte en TextField al elegir "+ Otro"
-# ─────────────────────────────────────────────────────────────
-class _DropdownConNuevo(ft.Stack):
-    """Al elegir '+ Otro' (opción con relleno azul dentro del
-    desplegable), el Dropdown se oculta y aparece un TextField
-    editable.  Al presionar Enter se crea en BD y se restaura
-    el Dropdown con el nuevo elemento seleccionado."""
-
-    def __init__(
-        self,
-        hint_text: str,
-        opciones_iniciales: list[ft.dropdown.Option],
-        width: int,
-        on_crear: Callable[[str], None] | None = None,
-    ) -> None:
-        self._on_crear = on_crear
-
-        self._dd = ft.Dropdown(
-            hint_text=hint_text,
-            options=opciones_iniciales,
-            on_change=self._on_dd_change,
-            menu_height=150,
-            **_dd_kw(width),
-        )
-        self._tf = ft.TextField(
-            visible=False,
-            on_submit=self._on_tf_submit,
-            on_blur=self._on_tf_blur,
-            **_tf_kw(width, hint="Escriba y presione Enter…"),
-        )
-        super().__init__(controls=[self._dd, self._tf], width=width)
-
-    # ── API pública ───────────────────────────────────────────
-
-    @property
-    def value(self) -> str | None:
-        return self._dd.value
-
-    @value.setter
-    def value(self, v: str | None) -> None:
-        self._dd.value = v
-        if self.page:
-            self._dd.update()
-
-    def reconstruir_opciones(
-        self,
-        nuevas: list[ft.dropdown.Option],
-        seleccion: str | None = None,
-    ) -> None:
-        self._dd.options = nuevas
-        self._dd.value   = seleccion
-        if self.page:
-            self._dd.update()
-
-    def restaurar_dd(self, seleccion: str | None) -> None:
-        self._dd.value   = seleccion
-        self._dd.visible = True
-        self._tf.visible = False
-        if self.page:
-            self._dd.update()
-            self._tf.update()
-
-    def reset(self, opciones: list[ft.dropdown.Option] | None = None) -> None:
-        """Destruye y recrea el Dropdown interno para forzar limpieza visual.
-
-        Usa ``reset_dropdown`` para evitar el bug de Flet donde
-        ``dropdown.value = None`` no limpia el texto renderizado.
-        """
-        self._dd = reset_dropdown(
-            self._dd,
-            options=opciones if opciones is not None else self._dd.options,
-            disabled=False,
-        )
-        # Reasignar on_change ya que reset_dropdown lo copia del viejo
-        self._dd.on_change = self._on_dd_change
-        self._tf.visible = False
-        if self.page:
-            self._tf.update()
-
-    # ── Callbacks internos ────────────────────────────────────
-
-    def _on_dd_change(self, _) -> None:
-        if self._dd.value == _KEY_NUEVO:
-            self._dd.visible = False
-            self._tf.visible = True
-            self._tf.value   = ""
-            if self.page:
-                self._dd.update()
-                self._tf.update()
-                self._tf.focus()
-
-    def _on_tf_submit(self, _) -> None:
-        nombre = (self._tf.value or "").strip()
-        if not nombre:
-            self.restaurar_dd(None)
-            return
-        if self._on_crear:
-            self._on_crear(nombre)
-
-    def _on_tf_blur(self, _) -> None:
-        if self._tf.visible and not (self._tf.value or "").strip():
-            self.restaurar_dd(None)
-
-
-# ─────────────────────────────────────────────────────────────
-# Buscador de unidad de aprendizaje con lista de resultados
-# ─────────────────────────────────────────────────────────────
-class _BuscadorUnidad(ft.Column):
-    """Campo de búsqueda con lista scrollable de coincidencias.
-
-    Al escribir, filtra las opciones cargadas y muestra los
-    resultados debajo del TextField en un ListView con scroll.
-    Al hacer clic en un resultado se invoca on_seleccionar(key, text).
-    """
-
-    _MAX_RESULTADOS_VISIBLES = 150   # altura máxima de la lista (px)
-
-    def __init__(
-        self,
-        width: int,
-        on_seleccionar: Callable[[str, str], None],
-        on_cerrar: Callable,
-    ) -> None:
-        self._on_seleccionar = on_seleccionar
-        self._on_cerrar = on_cerrar
-        self._opciones: list[tuple[str, str]] = []  # (key, text)
-
-        self._tf = ft.TextField(
-            on_change=self._filtrar,
-            prefix=ft.Icon(ft.Icons.SEARCH,
-                           color=Colores.AZUL_PRIMARIO, size=18),
-            suffix=ft.Container(
-                content=ft.Icon(ft.Icons.CLOSE,
-                                color=Colores.ROJO, size=18),
-                on_click=lambda _: self._on_cerrar(_),
-                tooltip="Cerrar búsqueda",
-                ink=True,
-                padding=ft.padding.all(2),
-            ),
-            **_tf_kw(width, hint="Escriba para filtrar…"),
-        )
-
-        self._lista = ft.ListView(
-            spacing=0,
-            height=self._MAX_RESULTADOS_VISIBLES,
-            padding=ft.padding.all(0),
-        )
-
-        self._contenedor_lista = ft.Container(
-            content=self._lista,
-            border=ft.border.all(1, Colores.BORDE),
-            border_radius=ft.border_radius.only(
-                bottom_left=6, bottom_right=6),
-            bgcolor=Colores.BLANCO,
-            width=width,
-            visible=False,
-        )
-
-        super().__init__(
-            controls=[self._tf, self._contenedor_lista],
-            spacing=0,
-            width=width,
-            visible=False,
-        )
-
-    # ── API pública ───────────────────────────────────────────
-
-    def set_opciones(self, opciones: list[tuple[str, str]]) -> None:
-        """Establece las opciones disponibles para filtrar."""
-        self._opciones = opciones
-
-    def activar(self) -> None:
-        """Muestra el buscador, limpia el campo y enfoca."""
-        self.visible = True
-        self._tf.value = ""
-        self._lista.controls = []
-        self._contenedor_lista.visible = False
-        if self.page:
-            self.update()
-            self._tf.focus()
-
-    def desactivar(self) -> None:
-        """Oculta el buscador y limpia resultados."""
-        self.visible = False
-        self._tf.value = ""
-        self._lista.controls = []
-        self._contenedor_lista.visible = False
-        if self.page:
-            self.update()
-
-    def set_width(self, width: int) -> None:
-        """Actualiza el ancho del buscador y sus controles internos."""
-        self.width = width
-        self._tf.width = width
-        self._contenedor_lista.width = width
-
-    # ── Filtrado interno ──────────────────────────────────────
-
-    def _filtrar(self, _) -> None:
-        """Filtra las opciones según lo escrito y actualiza la lista."""
-        texto = (self._tf.value or "").strip().lower()
-        if not texto:
-            self._lista.controls = []
-            self._contenedor_lista.visible = False
-        else:
-            coincidencias = [
-                (key, text) for key, text in self._opciones
-                if texto in text.lower()
-            ]
-            self._lista.controls = [
-                self._crear_item(key, text)
-                for key, text in coincidencias
-            ]
-            self._contenedor_lista.visible = len(coincidencias) > 0
-        if self.page:
-            self._lista.update()
-            self._contenedor_lista.update()
-
-    def _crear_item(self, key: str, text: str) -> ft.Container:
-        """Crea un ítem clickable para la lista de resultados."""
-        return ft.Container(
-            content=ft.Text(
-                text, size=13, color=_NEGRO,
-                font_family=Fuentes.CAMPOS,
-            ),
-            padding=ft.padding.symmetric(horizontal=12, vertical=8),
-            on_click=lambda _, k=key, t=text: self._seleccionar(k, t),
-            ink=True,
-            on_hover=self._hover_item,
-            border=ft.border.only(
-                bottom=ft.BorderSide(0.5, Colores.BORDE)),
-        )
-
-    def _hover_item(self, e) -> None:
-        """Resalta el ítem al pasar el cursor."""
-        e.control.bgcolor = (
-            ft.Colors.with_opacity(0.08, Colores.AZUL_PRIMARIO)
-            if e.data == "true" else None
-        )
-        if self.page:
-            e.control.update()
-
-    def _seleccionar(self, key: str, text: str) -> None:
-        """Invoca el callback de selección con la opción elegida."""
-        self._on_seleccionar(key, text)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -690,10 +203,7 @@ class DetallePlanView(ft.Column):
         self._semestres = [s for s in semestres_raw if s.numero > 0]
         # LIES tabs solo visibles para MIIDT
         self._all_lies  = service.obtener_lies_del_plan(id_plan)
-        self._aulas     = list(service.obtener_aulas())
-        self._docentes  = list(service.obtener_docentes())
         self._tipos     = service.obtener_tipos_materia()
-        self._unidades  = []
 
         if self._all_lies:
             _id_lies_init = self._all_lies[0].id
@@ -702,13 +212,32 @@ class DetallePlanView(ft.Column):
             _id_lies_init = _all[0].id if _all else 0
         self._id_lies_activa = _id_lies_init
 
-        # ── Estado centralizado (sesión, cachés, validación) ──
-        self._state = HorarioStateManager(
+        # ── Estado centralizado (sesión, cachés, catálogos) ───
+        self._state = DetallePlanState(
             service=service,
             id_plan=id_plan,
             id_lies_activa=_id_lies_init,
             sem_opt_id=self._sem_opt.id if self._sem_opt else None,
         )
+        # Poblar catálogos en el State
+        self._state.aulas    = list(service.obtener_aulas())
+        self._state.docentes = list(service.obtener_docentes())
+        self._state.unidades = []
+
+        # Aliases de vista — apuntan al state (no copias independientes)
+        self._aulas    = self._state.aulas
+        self._docentes = self._state.docentes
+        self._unidades = self._state.unidades
+
+        # ── Controller (coordina sin renderizar) ──────────────
+        self._ctrl = DetallePlanController(
+            service=service,
+            state=self._state,
+            id_plan=id_plan,
+        )
+        # ── Presenter (diálogos, mensajes) ────────────────────
+        self._presenter = DetallePlanPresenter(page)
+
 
         # ════════════════════ LIES TABS ═══════════════════════
         self._lies_btns: list[ft.OutlinedButton] = []
@@ -1244,40 +773,34 @@ class DetallePlanView(ft.Column):
         id_sem = self._dd_semestre.value
         if not id_sem:
             return
-        lid = self._id_lies_activa
 
-        unidades = list(self._service.obtener_unidades(
-            self._id_plan, lid, int(id_sem)))
-        if self._sem_opt:
-            unidades += self._service.obtener_unidades(
-                self._id_plan, lid, self._sem_opt.id)
+        # ── Lógica delegada al controller ─────────────────────
+        unidades = self._ctrl.cambiar_semestre(
+            id_sem=int(id_sem),
+            id_lies=self._id_lies_activa,
+            sem_opt_id=self._sem_opt.id if self._sem_opt else None,
+        )
+        self._unidades = unidades  # alias local para widgets que lo leen
 
-        unidades.sort(key=lambda u: (
-            0 if u.tipo.lower().startswith("tronco") else 1, u.nombre))
-        self._unidades = unidades
-
+        # ── Solo UI: actualizar widgets ───────────────────────
         opts = [_opcion(str(u.id_asignacion), u.nombre) for u in unidades]
-        self._unidad_all_opts = list(opts)  # copia maestra para filtrar
+        self._unidad_all_opts = list(opts)
         self._dd_unidad.options  = opts
         self._dd_unidad.value    = None
         self._dd_unidad.disabled = not unidades
         self._tipo_txt.value     = ""
 
-        # Sincronizar opciones con el buscador
         self._buscador_unidad.set_opciones([
             (str(u.id_asignacion), u.nombre) for u in unidades
         ])
 
-        # Resetear búsqueda si estaba activa
         if self._buscando_unidad:
             self._buscando_unidad = False
             self._buscador_unidad.desactivar()
             self._dd_unidad.visible = True
             self._btn_buscar_unidad.visible = True
 
-        # Limpiar tabla y sesión al cambiar de semestre
         self._tabla.rows = []
-        self._state.limpiar_todo()
 
         if self.page:
             self._page.update()
@@ -1794,51 +1317,21 @@ class DetallePlanView(ft.Column):
                 id_semestre_opt=self._sem_opt.id if self._sem_opt else None,
             )
             registros = [r for r in todos if r.id_horario in self._state.ids_sesion]
-            # Re-numerar claves desde 001
-            self._tabla.rows = [
-                ft.DataRow(cells=[
-                    ft.DataCell(ft.Text(str(i).zfill(3), size=12,
-                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                    ft.DataCell(ft.Text(r.semestre, size=12,
-                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                    ft.DataCell(ft.Text(r.unidad, size=12,
-                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                    ft.DataCell(ft.Text(r.docente, size=12,
-                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                    ft.DataCell(ft.Text(str(r.total_horas), size=12,
-                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                    ft.DataCell(ft.Text(r.aulas, size=12,
-                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                    ft.DataCell(ft.Text(r.periodo, size=12,
-                        font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                    ft.DataCell(ft.Row([
-                        ft.IconButton(
-                            icon=ft.Icons.EDIT,
-                            icon_color=Colores.AZUL_PRIMARIO,
-                            icon_size=16, tooltip="Editar",
-                            on_click=partial(self._on_editar_click, r.id_horario),
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.DELETE,
-                            icon_color=Colores.ROJO,
-                            icon_size=16, tooltip="Eliminar",
-                            on_click=partial(self._on_eliminar_click, r.id_horario),
-                        ),
-                    ], spacing=0)),
-                ])
-                for i, r in enumerate(registros, start=1)
-            ]
+            self._tabla.rows = HorarioRowBuilder.build_many(
+                registros,
+                on_editar=self._on_editar_click,
+                on_eliminar=self._on_eliminar_click,
+            )
             if self.page:
                 self._tabla.update()
         except Exception as ex:
             self._msg(f"Error al recargar tabla: {ex}")
 
     def _confirmar_eliminar(self, id_horario: int) -> None:
-        """Muestra diálogo ¿Estás seguro? antes de eliminar."""
-        self._page.open(DialogoConfirmacion(
-            page=self._page,
-            on_confirmar=lambda: self._eliminar(id_horario),
-        ))
+        """Delegado al presenter."""
+        self._presenter.confirmar_eliminar(
+            on_confirmar=lambda: self._eliminar(id_horario)
+        )
 
     def _on_editar_click(self, id_horario: int, _=None) -> None:
         """Wrapper para functools.partial en tabla."""
@@ -1922,9 +1415,7 @@ class DetallePlanView(ft.Column):
     # ── Vista previa (popup) ──────────────────────────────────
 
     def _visualizar(self, _=None) -> None:
-        """Genera PDF temporal y muestra vista previa en un diálogo.
-        Siempre regenera con los datos de sesión más recientes.
-        """
+        """Genera PDF temporal y muestra vista previa. Delegado al presenter."""
         import time as _time
         _ts = int(_time.time())
         ruta = os.path.join(
@@ -1933,65 +1424,7 @@ class DetallePlanView(ft.Column):
         )
         if not self._generar_pdf(ruta):
             return
-
-        try:
-            import fitz  # PyMuPDF
-            doc_pdf = fitz.open(ruta)
-            page_pdf = doc_pdf[0]
-            pix = page_pdf.get_pixmap(dpi=150)
-            img_path = os.path.join(
-                tempfile.gettempdir(),
-                f"preview_{self._id_plan}_{self._id_lies_activa}_{_ts}.png",
-            )
-            pix.save(img_path)
-            doc_pdf.close()
-
-            dlg = ft.AlertDialog(
-                modal=True,
-                bgcolor=Colores.BLANCO,
-                title=ft.Text(
-                    "Vista previa del documento",
-                    font_family=Fuentes.TITULO,
-                    size=18,
-                    color=Colores.AZUL_PRIMARIO,
-                ),
-                content=ft.Container(
-                    content=ft.Column(
-                        controls=[
-                            ft.Image(
-                                src=img_path,
-                                fit=ft.ImageFit.CONTAIN,
-                                width=550,
-                            ),
-                        ],
-                        scroll=ft.ScrollMode.AUTO,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                    width=600,
-                    height=550,
-                    border=ft.border.all(1, Colores.AZUL_PRIMARIO),
-                    border_radius=8,
-                ),
-                actions=[
-                    ft.TextButton(
-                        "Cerrar",
-                        on_click=lambda _: self._page.close(dlg),
-                    ),
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
-                shape=ft.RoundedRectangleBorder(radius=10),
-            )
-            self._page.open(dlg)
-        except ImportError:
-            # Si PyMuPDF no está instalado, abrir con el visor del sistema
-            import subprocess, sys
-            if sys.platform.startswith("win"):
-                os.startfile(ruta)
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", ruta])
-            else:
-                subprocess.Popen(["xdg-open", ruta])
-            self._msg("Vista previa abierta en el visor del sistema.")
+        self._presenter.mostrar_preview_pdf(ruta)
 
     # ── Descarga con selección de ruta ─────────────────────────
 
@@ -2042,5 +1475,5 @@ class DetallePlanView(ft.Column):
             self._on_volver()
 
     def _msg(self, texto: str) -> None:
-        print(f"[DetallePlanView] {texto}")
-        self._page.open(ft.SnackBar(content=ft.Text(texto)))
+        """Delegado al presenter."""
+        self._presenter.mensaje(texto)

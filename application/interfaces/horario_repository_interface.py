@@ -75,6 +75,42 @@ class IHorarioRepository(ABC):
         ...
 
     @abstractmethod
+    def obtener_detalle_por_id(self, id_detalle: int) -> "HorarioDetalleDTO | None":
+        """Retorna el detalle de un horario por id_detalle_horario."""
+        ...
+
+    @abstractmethod
+    def actualizar_detalle_horario(
+        self,
+        id_detalle: int,
+        id_asignacion: int,
+        id_semestre: int | None,
+        dia: str,
+        hora_inicio,
+        hora_fin,
+        total_horas: int,
+    ) -> None:
+        """Actualiza UN detalle in-place — SIN delete/recreate."""
+        ...
+
+    @abstractmethod
+    def actualizar_horario_maestro(
+        self,
+        id_horario: int,
+        id_docente: int,
+        id_aula: int,
+        id_periodo: int,
+        total_horas: int,
+    ) -> None:
+        """Actualiza los campos del HorarioModel padre (docente, aula, periodo)."""
+        ...
+
+    @abstractmethod
+    def obtener_id_materia_de_asignacion(self, id_asignacion: int) -> int | None:
+        """Retorna el id_materia de tronco o None si es optativa."""
+        ...
+
+    @abstractmethod
     def obtener_por_id(self, id_horario: int) -> "HorarioDetalleDTO | None":
         """Retorna el detalle de un horario o None si no existe."""
         ...
@@ -161,6 +197,24 @@ class IHorarioRepository(ABC):
     @abstractmethod
     def obtener_id_materia(self, id_asignacion: int) -> int | None:
         """Retorna el id_materia de tronco o None si es optativa."""
+        ...
+
+    # ── Validación de conflictos ─────────────────────────────
+
+    @abstractmethod
+    def obtener_horarios_conflictivos(
+        self,
+        id_plan: int,
+        id_semestre: int | None,
+        dia: str,
+        id_lies: int | None = None,
+        id_horario_excluir: int | None = None,
+    ) -> list["Horario"]:
+        """Retorna horarios candidatos a conflicto para validación.
+
+        Solo trae candidatos del mismo plan/semestre/día.
+        Retorna entidades Horario del dominio.
+        """
         ...
 
     # ── Transacciones ─────────────────────────────────────────

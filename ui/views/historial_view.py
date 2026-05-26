@@ -447,8 +447,9 @@ class HistorialView(ft.Container):
                                          font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
                     ft.DataCell(ft.Text(item.nombre_lies if item.nombre_lies else "—", size=12,
                                          font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
-                    ft.DataCell(ft.Text("Semestre 1", size=12,
-                                         font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
+                    ft.DataCell(ft.Text(
+                        self._obtener_semestres_texto(item.id_plan_generado),
+                        size=12, font_family=Fuentes.CAMPOS, color=Colores.TEXTO)),
                     ft.DataCell(ft.Row(
                         controls=[
                             ft.IconButton(
@@ -460,7 +461,8 @@ class HistorialView(ft.Container):
                                     self._on_ver_click,
                                     item.id_plan_generado,
                                     item.nombre_plan,
-                                    item.nombre_periodo),
+                                    item.nombre_periodo,
+                                    item.nombre_lies or ""),
                             ),
                             ft.IconButton(
                                 icon=ft.Icons.DELETE_OUTLINED,
@@ -490,8 +492,8 @@ class HistorialView(ft.Container):
 
     # ── Wrappers para functools.partial ─────────────────────────
 
-    def _on_ver_click(self, pg_id: int, plan_n: str, per_n: str, _=None) -> None:
-        self._ver_horario(pg_id, plan_n, per_n)
+    def _on_ver_click(self, pg_id: int, plan_n: str, per_n: str, lies_n: str, _=None) -> None:
+        self._ver_horario(pg_id, plan_n, per_n, lies_n)
 
     def _on_editar_click(self, pg_id: int, _=None) -> None:
         self._editar(pg_id)
@@ -509,6 +511,7 @@ class HistorialView(ft.Container):
         id_plan_generado: int,
         nombre_plan: str,
         nombre_periodo: str,
+        nombre_lies: str = "",
     ) -> None:
         """Obtiene el membrete del plan y genera el PDF en un popup."""
         id_plan = self._service.obtener_id_plan_de_plan_generado(id_plan_generado)
@@ -534,12 +537,15 @@ class HistorialView(ft.Container):
             if not registros:
                 self._msg("No hay horarios registrados para este plan.")
                 return
+            # Calcular semestres reales desde los horarios
+            nombre_sem = self._semestres_desde_registros(registros)
             GeneradorPDF(
                 horarios=registros,
                 nombre_plan=nombre_plan,
-                nombre_lies="",
+                nombre_lies=nombre_lies,
                 ruta_membrete=ruta_membrete,
                 ruta_salida=ruta_pdf,
+                nombre_semestre=nombre_sem,
             ).generar()
         except Exception as e:
             self._msg(f"Error al generar PDF: {e}")
@@ -707,12 +713,15 @@ class HistorialView(ft.Container):
                 tempfile.gettempdir(),
                 f"export_{item.id_plan_generado}.pdf",
             )
+            # Calcular semestres reales desde los horarios
+            nombre_sem = self._semestres_desde_registros(registros)
             GeneradorPDF(
                 horarios=registros,
                 nombre_plan=item.nombre_plan,
-                nombre_lies="",
+                nombre_lies=item.nombre_lies or "",
                 ruta_membrete=ruta_membrete,
                 ruta_salida=ruta_tmp,
+                nombre_semestre=nombre_sem,
             ).generar()
 
             shutil.copy2(ruta_tmp, ruta)
@@ -721,6 +730,27 @@ class HistorialView(ft.Container):
             self._msg(f"Error al exportar PDF: {exc}")
 
     # ── Helpers ───────────────────────────────────────────────
+
+    def _obtener_semestres_texto(self, id_plan_generado: int) -> str:
+        """Retorna texto como 'Sem. 1, 2' para la tabla del historial."""
+        registros = self._service.obtener_horarios_de_plan_generado(
+            id_plan_generado)
+        sems = sorted(set(
+            r.numero_semestre for r in registros if r.numero_semestre > 0
+        ))
+        if not sems:
+            return "—"
+        return "Sem. " + ", ".join(str(s) for s in sems)
+
+    @staticmethod
+    def _semestres_desde_registros(registros) -> str:
+        """Calcula texto de semestres desde una lista de registros."""
+        sems = sorted(set(
+            r.numero_semestre for r in registros if r.numero_semestre > 0
+        ))
+        if not sems:
+            return ""
+        return "Semestre " + ", ".join(str(s) for s in sems)
 
     def _msg(self, texto: str) -> None:
         print(f"[HistorialView] {texto}")

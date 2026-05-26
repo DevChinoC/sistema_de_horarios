@@ -16,30 +16,19 @@ import flet as ft
 from ui.components.plan_components import Colores, Fuentes
 from ui.utils.reset_utils import reset_dropdown
 
-_NEGRO    = "#FFFFFF"
+_BLANCO    = "#FFFFFF"
 _KEY_NUEVO = "__nuevo__"
 
-
-def _dd_kw(width: int) -> dict:
-    return dict(
-        width=width,
-        text_style=ft.TextStyle(color=_NEGRO, font_family=Fuentes.CAMPOS, size=13),
-        hint_style=ft.TextStyle(color=Colores.TEXTO_MUTED, font_family=Fuentes.CAMPOS, size=13),
-        border_color=Colores.BORDE,
-        focused_border_color=Colores.AZUL_PRIMARIO,
-        content_padding=ft.padding.symmetric(horizontal=10, vertical=6),
-        dense=True,
-    )
 def _dd_kw(width: int) -> dict:
     return dict(
         width=width,
 
         bgcolor=Colores.BLANCO,
         fill_color=Colores.BLANCO,
-        color=_NEGRO,
+        color="#000000",
 
         text_style=ft.TextStyle(
-            color=_NEGRO,
+            color="#060606",
             font_family=Fuentes.CAMPOS,
             size=13
         ),
@@ -64,7 +53,7 @@ def _dd_kw(width: int) -> dict:
 def _tf_kw(width: int, hint: str = "") -> dict:
     return dict(
         width=width,
-        text_style=ft.TextStyle(color=_NEGRO, font_family=Fuentes.CAMPOS, size=13),
+        text_style=ft.TextStyle(color="#000000", font_family=Fuentes.CAMPOS, size=13),
         hint_text=hint,
         hint_style=ft.TextStyle(color=Colores.TEXTO_MUTED, font_family=Fuentes.CAMPOS, size=13),
         border_color=Colores.BORDE,

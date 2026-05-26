@@ -61,8 +61,8 @@ class HorarioRowBuilder:
                         icon_size=16,
                         tooltip="Editar",
                         on_click=partial(
-                            lambda id_h, _: on_editar(id_h),
-                            registro.id_horario,
+                            lambda id_d, _: on_editar(id_d),
+                            registro.id_detalle_horario,
                         ),
                     ),
                     ft.IconButton(

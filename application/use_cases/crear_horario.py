@@ -3,6 +3,7 @@ Caso de uso: Crear Horario
 
 Responsabilidad única: orquestar la creación de un nuevo bloque horario.
 - Construye la entidad Horario (con sus value objects).
+- Consulta conflictos desde la BD real (no desde cachés).
 - Valida reglas de negocio vía HorarioValidator.
 - Persiste mediante IHorarioRepository.
 - Lanza excepciones de dominio (nunca retorna tuplas bool/str).
@@ -29,12 +30,11 @@ class CrearHorarioUseCase:
 
     Flujo:
         1. Crear la entidad Horario (valida sus invariantes).
-        2. Obtener o crear el plan_generado.
-        3. Obtener el id_materia (tronco o None).
-        4. Construir lista de horarios existentes para validar conflictos.
-        5. Validar con HorarioValidator.
-        6. Persistir mediante el repositorio.
-        7. Retornar el id_horario creado.
+        2. Consultar conflictos desde BD real.
+        3. Validar con HorarioValidator.
+        4. Obtener o crear el plan_generado.
+        5. Persistir mediante el repositorio.
+        6. Retornar el id_horario creado.
 
     Raises:
         HorarioInvalidoException: Si los datos del horario son inválidos.
@@ -50,18 +50,11 @@ class CrearHorarioUseCase:
         self._repo = repo
         self._validator = validator
 
-    def ejecutar(
-        self,
-        dto: GuardarHorarioDTO,
-        horarios_existentes: list[Horario] | None = None,
-    ) -> int:
+    def ejecutar(self, dto: GuardarHorarioDTO) -> int:
         """Crea un nuevo horario y retorna su id_horario.
 
         Args:
             dto: Datos del horario a crear.
-            horarios_existentes: Lista de objetos Horario ya registrados
-                en la sesión (para validar conflictos en memoria).
-                Si es None, no se validan conflictos de sesión.
 
         Returns:
             El id_horario del registro creado en BD.
@@ -71,6 +64,7 @@ class CrearHorarioUseCase:
             HorarioConflictException: Conflicto de horario.
         """
         # 1. Construir la entidad (valida invariantes: hora_inicio < hora_fin)
+        id_materia = self._repo.obtener_id_materia_de_asignacion(dto.id_asignacion)
         nuevo = Horario(
             dia=dto.dia,
             hora_inicio=dto.hora_inicio,
@@ -81,25 +75,32 @@ class CrearHorarioUseCase:
             id_periodo=dto.id_periodo,
             id_semestre=dto.id_semestre,
             id_lies=dto.id_lies,
-            id_materia=self._repo.obtener_id_materia(dto.id_asignacion),
+            id_materia=id_materia,
             total_horas=dto.total_horas,
         )
 
-        # 2. Validar conflictos contra horarios existentes en sesión
-        if horarios_existentes:
-            self._validator.validar_traslapes(nuevo, horarios_existentes)
+        # 2. Consultar conflictos desde BD real (no desde cachés)
+        existentes = self._repo.obtener_horarios_conflictivos(
+            id_plan=dto.id_plan,
+            id_semestre=dto.id_semestre,
+            dia=dto.dia,
+            id_lies=dto.id_lies,
+        )
 
-        # 3. Obtener o crear el plan_generado en BD
+        # 3. Validar con HorarioValidator
+        self._validator.validar_traslapes(nuevo, existentes)
+
+        # 4. Obtener o crear el plan_generado en BD
         pg = self._repo.obtener_o_crear_plan_generado(
             dto.id_plan, dto.id_periodo, dto.id_lies
         )
 
-        # 4. Convertir hora_inicio y hora_fin a objetos time para BD
+        # 5. Convertir hora_inicio y hora_fin a objetos time para BD
         hi = datetime.strptime(dto.hora_inicio, "%H:%M").time()
         hf = datetime.strptime(dto.hora_fin, "%H:%M").time()
 
-        # 5. Persistir
-        id_horario = self._repo.crear(
+        # 6. Persistir
+        h = self._repo.crear_horario(
             id_plan_generado=pg.id_plan_generado,
             id_asignacion=dto.id_asignacion,
             id_docente=dto.id_docente,
@@ -111,4 +112,4 @@ class CrearHorarioUseCase:
             id_semestre=dto.id_semestre,
         )
         self._repo.commit()
-        return id_horario
+        return h.id_horario

@@ -24,6 +24,7 @@ class HorarioMapper:
         """Convierte un HorarioRegistradoDTO a dict plano para la UI."""
         return {
             "id_horario":  registro.id_horario,
+            "id_detalle_horario": registro.id_detalle_horario,
             "semestre":    registro.semestre,
             "unidad":      registro.unidad,
             "docente":     registro.docente,

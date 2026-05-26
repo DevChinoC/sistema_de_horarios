@@ -149,6 +149,9 @@ class _HorarioServiceRepoAdapter:
     def obtener_id_materia(self, id_asignacion: int):
         return self._svc.obtener_id_materia(id_asignacion)
 
+    def obtener_id_materia_de_asignacion(self, id_asignacion: int):
+        return self._svc.obtener_id_materia(id_asignacion)
+
     def obtener_o_crear_plan_generado(self, id_plan, id_periodo, id_lies):
         # Acceso directo al repo interno del service para el plan_generado
         from infrastructure.db.connection import DatabaseConnection
@@ -190,17 +193,17 @@ class _HorarioServiceRepoAdapter:
 
     def actualizar(self, id_horario, id_asignacion, id_docente, id_aula,
                    id_periodo, dia, hora_inicio, hora_fin, total_horas, id_semestre):
+        """Legacy adapter — actualiza el HorarioModel padre + su primer detalle."""
         from infrastructure.db.connection import DatabaseConnection
         from infrastructure.repositories.horario_repository import HorarioRepository
         db = DatabaseConnection()
         session = db.get_session()
         try:
             repo = HorarioRepository(session)
-            repo.actualizar_horario(
-                id_horario=id_horario, id_asignacion=id_asignacion,
-                id_docente=id_docente, id_aula=id_aula, id_periodo=id_periodo,
-                dia=dia, hora_inicio=hora_inicio, hora_fin=hora_fin,
-                total_horas=total_horas, id_semestre=id_semestre,
+            repo.actualizar_horario_maestro(
+                id_horario=id_horario, id_docente=id_docente,
+                id_aula=id_aula, id_periodo=id_periodo,
+                total_horas=total_horas,
             )
             repo.commit()
         except Exception:
@@ -226,6 +229,50 @@ class _HorarioServiceRepoAdapter:
 
     def obtener_por_id(self, id_horario: int):
         return self._svc.obtener_horario_detalle(id_horario)
+
+    def obtener_detalle_por_id(self, id_detalle: int):
+        return self._svc.obtener_detalle_por_id(id_detalle)
+
+    def actualizar_detalle_horario(self, id_detalle, id_asignacion, id_semestre,
+                                    dia, hora_inicio, hora_fin, total_horas):
+        from infrastructure.db.connection import DatabaseConnection
+        from infrastructure.repositories.horario_repository import HorarioRepository
+        db = DatabaseConnection()
+        session = db.get_session()
+        try:
+            repo = HorarioRepository(session)
+            repo.actualizar_detalle_horario(
+                id_detalle=id_detalle, id_asignacion=id_asignacion,
+                id_semestre=id_semestre, dia=dia,
+                hora_inicio=hora_inicio, hora_fin=hora_fin,
+                total_horas=total_horas,
+            )
+            repo.commit()
+        except Exception:
+            repo.rollback()
+            raise
+        finally:
+            session.close()
+
+    def actualizar_horario_maestro(self, id_horario, id_docente, id_aula,
+                                    id_periodo, total_horas):
+        from infrastructure.db.connection import DatabaseConnection
+        from infrastructure.repositories.horario_repository import HorarioRepository
+        db = DatabaseConnection()
+        session = db.get_session()
+        try:
+            repo = HorarioRepository(session)
+            repo.actualizar_horario_maestro(
+                id_horario=id_horario, id_docente=id_docente,
+                id_aula=id_aula, id_periodo=id_periodo,
+                total_horas=total_horas,
+            )
+            repo.commit()
+        except Exception:
+            repo.rollback()
+            raise
+        finally:
+            session.close()
 
     def obtener_filtrados(self, id_plan, id_lies, id_semestre, id_semestre_opt=None):
         return self._svc.obtener_horarios_filtrados(
@@ -255,6 +302,21 @@ class _HorarioServiceRepoAdapter:
     def obtener_unidades(self, id_plan, id_lies, id_semestre):
         return self._svc.obtener_unidades(id_plan, id_lies, id_semestre)
 
+    def obtener_horarios_conflictivos(self, id_plan, id_semestre, dia,
+                                       id_lies=None, id_horario_excluir=None):
+        from infrastructure.db.connection import DatabaseConnection
+        from infrastructure.repositories.horario_repository import HorarioRepository
+        db = DatabaseConnection()
+        session = db.get_session()
+        try:
+            repo = HorarioRepository(session)
+            return repo.obtener_horarios_conflictivos(
+                id_plan=id_plan, id_semestre=id_semestre, dia=dia,
+                id_lies=id_lies, id_horario_excluir=id_horario_excluir,
+            )
+        finally:
+            session.close()
+
     def eliminar_plan_generado(self, id_plan_generado: int) -> None:
         ok, msg = self._svc.eliminar_plan_generado(id_plan_generado)
         if not ok:
@@ -265,3 +327,4 @@ class _HorarioServiceRepoAdapter:
 
     def rollback(self) -> None:
         pass  # ya se hace rollback dentro de cada método
+

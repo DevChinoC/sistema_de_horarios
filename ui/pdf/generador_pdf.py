@@ -192,24 +192,30 @@ class GeneradorPDF:
         ]
         data = [header]
 
-        # Mapa rápido: (dia, hora_inicio) → DTO
-        mapa: dict[tuple, HorarioRegistradoDTO] = {}
+        # Mapa rápido: (dia, hora_inicio) → lista de DTOs
+        mapa: dict[tuple, list[HorarioRegistradoDTO]] = {}
         for h in self._horarios:
             if h.dia and h.hora_inicio:
-                mapa[(h.dia, h.hora_inicio)] = h
+                mapa.setdefault((h.dia, h.hora_inicio), []).append(h)
 
         # Textos originales para color mapping
         cell_texts: list[list[str]] = []
+        # Unidades individuales por celda (para color mapping)
+        cell_units: list[list[list[str]]] = []
 
         for (hi, hf) in franjas:
             fila = [Paragraph(f"{hi[:5]}-{hf[:5]}", _STY_HORA)]
             row_texts: list[str] = []
+            row_units: list[list[str]] = []
             for dia in _DIAS:
-                h = mapa.get((dia, hi))
-                txt = h.unidad if h else ""
+                hs = mapa.get((dia, hi), [])
+                units = [h.unidad for h in hs]
+                txt = "<br/>".join(units) if units else ""
                 row_texts.append(txt)
+                row_units.append(units)
                 fila.append(Paragraph(txt, _STY_CELL))
             cell_texts.append(row_texts)
+            cell_units.append(row_units)
             data.append(fila)
 
         # Si no hay datos de horario
@@ -219,6 +225,7 @@ class GeneradorPDF:
                 + [Paragraph("", _STY_CELL)] * 6
             )
             cell_texts.append([""] * 6)
+            cell_units.append([[] for _ in range(6)])
 
         # Anchos adaptados a portrait (letter vertical)
         page_w = letter[0] - 3 * cm
@@ -241,12 +248,12 @@ class GeneradorPDF:
         ]
 
         # Colores pastel por celda según materia
-        for row_idx, row_texts in enumerate(cell_texts, start=1):
-            for col_idx, txt in enumerate(row_texts, start=1):
-                if txt and txt in self._color_map:
+        for row_idx, row_units in enumerate(cell_units, start=1):
+            for col_idx, units in enumerate(row_units, start=1):
+                if len(units) == 1 and units[0] in self._color_map:
                     style_cmds.append(
                         ("BACKGROUND", (col_idx, row_idx),
-                         (col_idx, row_idx), self._color_map[txt])
+                         (col_idx, row_idx), self._color_map[units[0]])
                     )
 
         tabla.setStyle(TableStyle(style_cmds))

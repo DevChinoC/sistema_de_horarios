@@ -9,6 +9,13 @@ from application.dto.horario_docente_dto import (
     HorarioDocenteFilaDTO, HorarioDocenteResumenDTO,
 )
 from application.dto.planes_dto import PlanDTO
+from application.use_cases.crear_horario import CrearHorarioUseCase
+from application.use_cases.editar_horario import EditarHorarioUseCase
+from domain.exceptions.horario_exceptions import (
+    HorarioConflictException,
+    HorarioInvalidoException,
+)
+from domain.rules.horario_validator import HorarioValidator
 from infrastructure.db.connection import DatabaseConnection
 from infrastructure.repositories.horario_repository import HorarioRepository
 
@@ -160,6 +167,7 @@ class HorarioService:
             for idx, r in enumerate(rows, start=1):
                 result.append(HorarioRegistradoDTO(
                     id_horario=r.id_horario,
+                    id_detalle_horario=r.id_detalle_horario,
                     clave=str(idx).zfill(3),
                     semestre=f"Semestre {r.semestre}" if r.semestre > 0 else "Optativa",
                     unidad=r.unidad or "",
@@ -193,6 +201,7 @@ class HorarioService:
             for idx, r in enumerate(rows, start=1):
                 result.append(HorarioRegistradoDTO(
                     id_horario=r.id_horario,
+                    id_detalle_horario=r.id_detalle_horario,
                     clave=str(idx).zfill(3),
                     semestre=f"Semestre {r.semestre}" if r.semestre > 0 else "Optativa",
                     unidad=r.unidad or "",
@@ -212,28 +221,21 @@ class HorarioService:
     # ── Guardar horario ───────────────────────────────────────
 
     def guardar_horario(self, dto: GuardarHorarioDTO) -> tuple[bool, str, int | None]:
-        """Retorna (ok, mensaje, id_horario_creado | None)."""
+        """Retorna (ok, mensaje, id_horario_creado | None).
+
+        Delega a CrearHorarioUseCase que valida contra BD real
+        ANTES del commit.  Si hay conflicto lanza excepción y
+        no persiste nada.
+        """
         session = self._db.get_session()
         repo    = HorarioRepository(session)
         try:
-            hi = datetime.strptime(dto.hora_inicio, "%H:%M").time()
-            hf = datetime.strptime(dto.hora_fin,    "%H:%M").time()
-
-            pg = repo.obtener_o_crear_plan_generado(
-                dto.id_plan, dto.id_periodo, dto.id_lies)
-            h  = repo.crear_horario(
-                id_plan_generado=pg.id_plan_generado,
-                id_asignacion=dto.id_asignacion,
-                id_docente=dto.id_docente,
-                id_aula=dto.id_aula,
-                dia=dto.dia,
-                hora_inicio=hi,
-                hora_fin=hf,
-                total_horas=dto.total_horas,
-                id_semestre=dto.id_semestre,
-            )
-            repo.commit()
-            return True, "Horario guardado correctamente.", h.id_horario
+            uc = CrearHorarioUseCase(repo, HorarioValidator())
+            id_horario = uc.ejecutar(dto)
+            return True, "Horario guardado correctamente.", id_horario
+        except (HorarioConflictException, HorarioInvalidoException) as e:
+            repo.rollback()
+            return False, str(e), None
         except Exception as e:
             repo.rollback()
             print(f"[ERROR] Error al guardar horario: {e}")
@@ -257,15 +259,17 @@ class HorarioService:
         finally:
             session.close()
 
-    # ── Obtener detalle de horario (para edición) ──────────────
+    # ── Obtener detalle de horario por id_detalle (para edición) ──
 
-    def obtener_horario_detalle(self, id_horario: int) -> HorarioDetalleDTO | None:
+    def obtener_detalle_por_id(self, id_detalle: int) -> HorarioDetalleDTO | None:
+        """Obtiene los datos de UN detalle específico por su id_detalle_horario."""
         session = self._db.get_session()
         try:
-            r = HorarioRepository(session).obtener_horario_por_id(id_horario)
+            r = HorarioRepository(session).obtener_detalle_por_id(id_detalle)
             if r is None:
                 return None
             return HorarioDetalleDTO(
+                id_detalle_horario=r.id_detalle_horario,
                 id_horario=r.id_horario,
                 id_asignacion=r.id_asignacion,
                 id_semestre=r.id_semestre,
@@ -281,32 +285,74 @@ class HorarioService:
         finally:
             session.close()
 
-    # ── Actualizar horario existente ────────────────────────
+    def obtener_horario_detalle(self, id_horario: int) -> HorarioDetalleDTO | None:
+        """Obtiene detalle por id_horario (legacy, usa primer detalle)."""
+        session = self._db.get_session()
+        try:
+            r = HorarioRepository(session).obtener_horario_por_id(id_horario)
+            if r is None:
+                return None
+            return HorarioDetalleDTO(
+                id_detalle_horario=r.id_detalle_horario,
+                id_horario=r.id_horario,
+                id_asignacion=r.id_asignacion,
+                id_semestre=r.id_semestre,
+                id_docente=r.id_docente,
+                id_aula=r.id_aula,
+                id_periodo=r.id_periodo,
+                dia=r.dia or "",
+                hora_inicio=r.hora_inicio.strftime("%H:%M") if r.hora_inicio else "",
+                hora_fin=r.hora_fin.strftime("%H:%M") if r.hora_fin else "",
+                total_horas=r.total_horas or 0,
+                periodo_nombre=r.periodo_nombre or "",
+            )
+        finally:
+            session.close()
+
+    # ── Actualizar detalle específico (edición por detalle) ────
+
+    def actualizar_detalle(
+        self,
+        id_detalle: int,
+        dto: GuardarHorarioDTO,
+    ) -> tuple[bool, str]:
+        """Actualiza UN detalle específico + su HorarioModel padre.
+
+        Delega validación de conflictos al use case.
+        """
+        session = self._db.get_session()
+        repo    = HorarioRepository(session)
+        try:
+            uc = EditarHorarioUseCase(repo, HorarioValidator())
+            uc.ejecutar_detalle(id_detalle, dto)
+            return True, "Horario actualizado correctamente."
+        except (HorarioConflictException, HorarioInvalidoException) as e:
+            repo.rollback()
+            return False, str(e)
+        except Exception as e:
+            repo.rollback()
+            print(f"[ERROR] Error al actualizar detalle: {e}")
+            return False, f"Error al actualizar horario: {e}"
+        finally:
+            session.close()
+
+    # ── Actualizar horario existente (legacy, mantener compatibilidad) ──
 
     def actualizar_horario(
         self,
         id_horario: int,
         dto: GuardarHorarioDTO,
     ) -> tuple[bool, str]:
+        """Delega a EditarHorarioUseCase que valida contra BD real."""
         session = self._db.get_session()
         repo    = HorarioRepository(session)
         try:
-            hi = datetime.strptime(dto.hora_inicio, "%H:%M").time()
-            hf = datetime.strptime(dto.hora_fin,    "%H:%M").time()
-            repo.actualizar_horario(
-                id_horario=id_horario,
-                id_asignacion=dto.id_asignacion,
-                id_docente=dto.id_docente,
-                id_aula=dto.id_aula,
-                id_periodo=dto.id_periodo,
-                dia=dto.dia,
-                hora_inicio=hi,
-                hora_fin=hf,
-                total_horas=dto.total_horas,
-                id_semestre=dto.id_semestre,
-            )
-            repo.commit()
+            uc = EditarHorarioUseCase(repo, HorarioValidator())
+            uc.ejecutar(id_horario, dto)
             return True, "Horario actualizado correctamente."
+        except (HorarioConflictException, HorarioInvalidoException) as e:
+            repo.rollback()
+            return False, str(e)
         except Exception as e:
             repo.rollback()
             print(f"[ERROR] Error al actualizar horario: {e}")
@@ -621,6 +667,7 @@ class HorarioService:
             for idx, r in enumerate(rows, start=1):
                 result.append(HorarioRegistradoDTO(
                     id_horario=r.id_horario,
+                    id_detalle_horario=r.id_detalle_horario,
                     clave=str(idx).zfill(3),
                     semestre=f"Semestre {r.semestre}" if r.semestre > 0 else "Optativa",
                     unidad=r.unidad or "",

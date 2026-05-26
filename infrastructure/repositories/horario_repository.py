@@ -103,6 +103,7 @@ class HorarioRepository:
                 DetalleHorarioModel.dia,
                 DetalleHorarioModel.hora_inicio,
                 DetalleHorarioModel.hora_fin,
+                DetalleHorarioModel.id_detalle_horario,
             )
             .join(DetalleHorarioModel,
                   DetalleHorarioModel.id_horario == HorarioModel.id_horario)
@@ -155,6 +156,7 @@ class HorarioRepository:
                 DetalleHorarioModel.dia,
                 DetalleHorarioModel.hora_inicio,
                 DetalleHorarioModel.hora_fin,
+                DetalleHorarioModel.id_detalle_horario,
             )
             .join(DetalleHorarioModel,
                   DetalleHorarioModel.id_horario == HorarioModel.id_horario)
@@ -255,6 +257,7 @@ class HorarioRepository:
                 DetalleHorarioModel.hora_fin,
                 DetalleHorarioModel.total_horas,
                 PeriodoEscolarModel.nombre.label("periodo_nombre"),
+                DetalleHorarioModel.id_detalle_horario,
             )
             .join(DetalleHorarioModel,
                   DetalleHorarioModel.id_horario == HorarioModel.id_horario)
@@ -270,44 +273,92 @@ class HorarioRepository:
             .first()
         )
 
-    def actualizar_horario(
+    def obtener_detalle_por_id(self, id_detalle: int) -> tuple | None:
+        """Retorna los datos de UN detalle específico para pre-poblar el formulario de edición.
+
+        A diferencia de obtener_horario_por_id (que busca por id_horario y toma el primer detalle),
+        este método busca directamente por id_detalle_horario — la clave primaria del detalle.
+        """
+        return (
+            self._s.query(
+                DetalleHorarioModel.id_detalle_horario,
+                HorarioModel.id_horario,
+                DetalleHorarioModel.id_asignacion,
+                DetalleSemestreModel.id_semestre,
+                HorarioModel.id_docente,
+                HorarioModel.id_aula,
+                PlanGeneradoModel.id_periodo,
+                DetalleHorarioModel.dia,
+                DetalleHorarioModel.hora_inicio,
+                DetalleHorarioModel.hora_fin,
+                DetalleHorarioModel.total_horas,
+                PeriodoEscolarModel.nombre.label("periodo_nombre"),
+            )
+            .join(HorarioModel,
+                  HorarioModel.id_horario == DetalleHorarioModel.id_horario)
+            .join(PlanGeneradoModel,
+                  PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
+            .join(AsignacionMateriaModel,
+                  AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
+            .join(DetalleSemestreModel,
+                  DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
+            .join(PeriodoEscolarModel,
+                  PeriodoEscolarModel.id_periodo == PlanGeneradoModel.id_periodo)
+            .filter(DetalleHorarioModel.id_detalle_horario == id_detalle)
+            .first()
+        )
+
+    def actualizar_detalle_horario(
         self,
-        id_horario: int,
+        id_detalle: int,
         id_asignacion: int,
-        id_docente: int,
-        id_aula: int,
-        id_periodo: int,
+        id_semestre: int | None,
         dia: str,
         hora_inicio,
         hora_fin,
         total_horas: int,
-        id_semestre: int | None = None,
     ) -> None:
+        """Actualiza UN detalle in-place — SIN delete/recreate.
+
+        Solo modifica los campos del detalle específico.
+        Las demás materias del mismo horario quedan intactas.
+        """
+        detalle = (
+            self._s.query(DetalleHorarioModel)
+            .filter(DetalleHorarioModel.id_detalle_horario == id_detalle)
+            .first()
+        )
+        if not detalle:
+            raise ValueError("Detalle de horario no encontrado")
+
+        detalle.id_asignacion = id_asignacion
+        detalle.id_semestre = id_semestre
+        detalle.dia = dia
+        detalle.hora_inicio = hora_inicio
+        detalle.hora_fin = hora_fin
+        detalle.total_horas = total_horas
+        self._s.flush()
+
+    def actualizar_horario_maestro(
+        self,
+        id_horario: int,
+        id_docente: int,
+        id_aula: int,
+        id_periodo: int,
+        total_horas: int,
+    ) -> None:
+        """Actualiza los campos del HorarioModel padre (docente, aula, periodo)."""
         h = self._s.query(HorarioModel).get(id_horario)
         if h:
-            h.id_docente    = id_docente
-            h.id_aula       = id_aula
-            h.total_horas   = total_horas
+            h.id_docente = id_docente
+            h.id_aula = id_aula
+            h.total_horas = total_horas
             # Si cambia el periodo, actualizar plan_generado
             pg = h.plan_generado
             if pg.id_periodo != id_periodo:
                 new_pg = self.obtener_o_crear_plan_generado(
                     pg.id_plan, id_periodo, pg.id_lies)
                 h.id_plan_generado = new_pg.id_plan_generado
-            # Reemplazar detalles: eliminar todos y crear uno nuevo
-            for det in list(h.detalles):
-                self._s.delete(det)
-            self._s.flush()
-            d = DetalleHorarioModel(
-                id_horario=h.id_horario,
-                id_asignacion=id_asignacion,
-                id_semestre=id_semestre,
-                dia=dia,
-                hora_inicio=hora_inicio,
-                hora_fin=hora_fin,
-                total_horas=total_horas,
-            )
-            self._s.add(d)
             self._s.flush()
 
     # ── Horarios por docente (vista Horario Docente) ─────────
@@ -708,6 +759,7 @@ class HorarioRepository:
                 DetalleHorarioModel.dia,
                 DetalleHorarioModel.hora_inicio,
                 DetalleHorarioModel.hora_fin,
+                DetalleHorarioModel.id_detalle_horario,
             )
             .join(DetalleHorarioModel,
                   DetalleHorarioModel.id_horario == HorarioModel.id_horario)
@@ -818,6 +870,85 @@ class HorarioRepository:
             )
             .all()
         )
+
+    # ── Query de conflictos para validación contra BD real ────
+
+    def obtener_horarios_conflictivos(
+        self,
+        id_plan: int,
+        id_semestre: int | None,
+        dia: str,
+        id_lies: int | None = None,
+        id_horario_excluir: int | None = None,
+    ) -> list:
+        """Retorna entidades Horario del dominio desde BD para validar conflictos.
+
+        Solo trae candidatos del mismo plan/semestre/día (eficiente).
+        Retorna objetos domain.entities.Horario listos para HorarioValidator.
+        """
+        from domain.entities.horario import Horario
+
+        if id_semestre is None:
+            return []
+
+        from sqlalchemy import or_
+
+        # Filtros base: mismo plan, mismo día
+        q = (
+            self._s.query(
+                HorarioModel.id_horario,
+                DetalleHorarioModel.dia,
+                DetalleHorarioModel.hora_inicio,
+                DetalleHorarioModel.hora_fin,
+                DetalleHorarioModel.id_asignacion,
+                HorarioModel.id_docente,
+                HorarioModel.id_aula,
+                AsignacionMateriaModel.id_materia,
+                DetalleSemestreModel.id_lies,
+                DetalleHorarioModel.id_semestre,
+            )
+            .join(DetalleHorarioModel,
+                  DetalleHorarioModel.id_horario == HorarioModel.id_horario)
+            .join(PlanGeneradoModel,
+                  PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
+            .join(AsignacionMateriaModel,
+                  AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
+            .join(DetalleSemestreModel,
+                  DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
+            .filter(
+                PlanGeneradoModel.id_plan == id_plan,
+                DetalleHorarioModel.dia == dia,
+                DetalleHorarioModel.id_semestre == id_semestre,
+            )
+        )
+
+        # Excluir el horario que se está editando
+        if id_horario_excluir is not None:
+            q = q.filter(HorarioModel.id_horario != id_horario_excluir)
+
+        rows = q.all()
+        result = []
+        for r in rows:
+            try:
+                hi_str = r.hora_inicio.strftime("%H:%M") if hasattr(r.hora_inicio, "strftime") else str(r.hora_inicio)
+                hf_str = r.hora_fin.strftime("%H:%M") if hasattr(r.hora_fin, "strftime") else str(r.hora_fin)
+                h = Horario(
+                    dia=r.dia,
+                    hora_inicio=hi_str,
+                    hora_fin=hf_str,
+                    id_asignacion=r.id_asignacion,
+                    id_docente=r.id_docente,
+                    id_aula=r.id_aula,
+                    id_periodo=0,
+                    id_semestre=r.id_semestre,
+                    id_lies=r.id_lies,
+                    id_materia=r.id_materia,
+                    id_horario=r.id_horario,
+                )
+                result.append(h)
+            except Exception:
+                pass  # Horarios con datos corruptos se ignoran
+        return result
 
     def commit(self)   -> None: self._s.commit()
     def rollback(self) -> None: self._s.rollback()

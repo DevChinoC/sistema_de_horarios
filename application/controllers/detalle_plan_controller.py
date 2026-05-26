@@ -128,6 +128,9 @@ class DetallePlanController:
     ) -> tuple[bool, str, list[int]]:
         """Crea uno o más horarios (una fila por registro).
 
+        La validación de conflictos se hace en el backend:
+        HorarioService → CrearHorarioUseCase → HorarioValidator → BD real.
+
         Returns:
             (True, mensaje_ok, ids_creados) si todo OK.
             (False, mensaje_error, []) si hay error.
@@ -137,18 +140,7 @@ class DetallePlanController:
         if periodo_dto is None:
             return False, "Error al registrar el periodo.", []
 
-        id_materia = self._service.obtener_id_materia(int(id_asig))
-        es_tronco = id_materia is not None
-
-        # Validar conflictos via estado (mantiene compatibilidad con caché)
-        error = self._state.validar_horario(
-            es_tronco, id_materia, id_sem, filas_validas,
-            id_aula=int(id_aula), id_docente=int(id_doc),
-        )
-        if error:
-            return False, error, []
-
-        # Guardar cada fila
+        # Guardar cada fila — el service valida contra BD real
         ids_nuevos: list[int] = []
         for f in filas_validas:
             ok, msg, id_nuevo = self._service.guardar_horario(GuardarHorarioDTO(
@@ -167,37 +159,25 @@ class DetallePlanController:
             if not ok:
                 return False, msg, []
             if id_nuevo is not None:
-                self._state.ids_sesion.add(id_nuevo)
                 ids_nuevos.append(id_nuevo)
-
-        # Actualizar cachés
-        if es_tronco and id_materia is not None and id_sem is not None:
-            self._state.registrar_tronco(
-                id_sem, id_materia, filas_validas,
-                id_lies=self._state.id_lies_activa,
-                id_aula=int(id_aula),
-                id_docente=int(id_doc),
-            )
-        elif not es_tronco and id_sem is not None:
-            for fila_d, id_h in zip(filas_validas, ids_nuevos):
-                self._state.registrar_optativa(
-                    self._state.id_lies_activa, id_sem, [fila_d], id_h,
-                )
 
         return True, "¡Horario agregado correctamente!", ids_nuevos
 
     # ── Editar horario ────────────────────────────────────────
 
-    def iniciar_edicion(self, id_horario: int) -> HorarioDetalleDTO | None:
+    def iniciar_edicion(self, id_detalle: int) -> HorarioDetalleDTO | None:
         """Carga el detalle del horario para poblar el formulario.
+
+        Args:
+            id_detalle: ID del detalle (DetalleHorarioModel.id_detalle_horario).
 
         Returns:
             HorarioDetalleDTO si existe, None si no se encontró.
         """
-        detalle = self._service.obtener_horario_detalle(id_horario)
+        detalle = self._service.obtener_detalle_por_id(id_detalle)
         if detalle is None:
             return None
-        self._state.editando_id = id_horario
+        self._state.editando_id_detalle = id_detalle
         return detalle
 
     def guardar_edicion(
@@ -209,37 +189,25 @@ class DetallePlanController:
         filas_validas: list[FilaHorarioDTO],
         id_sem: int | None,
     ) -> tuple[bool, str]:
-        """Guarda los cambios del horario en edición.
+        """Guarda los cambios del detalle en edición.
 
-        La primera fila actualiza el registro original; las filas
-        adicionales se crean como nuevos registros.
+        Actualiza SOLO el detalle específico (por id_detalle_horario).
+        La validación se hace en el backend via EditarHorarioUseCase.
 
         Returns:
             (True, mensaje_ok) o (False, mensaje_error).
         """
-        if self._state.editando_id is None:
+        if self._state.editando_id_detalle is None:
             return False, "No hay horario en edición."
 
         periodo_dto = self._service.crear_periodo(periodo_txt.strip())
         if periodo_dto is None:
             return False, "Error al registrar el periodo."
 
-        id_materia = self._service.obtener_id_materia(int(id_asig))
-        es_tronco = id_materia is not None
-
-        # Validar conflictos excluyendo el horario editado
-        error = self._state.validar_horario(
-            es_tronco, id_materia, id_sem, filas_validas,
-            id_horario_excluir=self._state.editando_id,
-            id_aula=int(id_aula), id_docente=int(id_doc),
-        )
-        if error:
-            return False, error
-
-        # Actualizar registro original con la primera fila
+        # Actualizar el detalle específico (SIN crear filas adicionales)
         f0 = filas_validas[0]
-        ok, msg = self._service.actualizar_horario(
-            id_horario=self._state.editando_id,
+        ok, msg = self._service.actualizar_detalle(
+            id_detalle=self._state.editando_id_detalle,
             dto=GuardarHorarioDTO(
                 id_asignacion=int(id_asig),
                 id_docente=int(id_doc),
@@ -257,39 +225,6 @@ class DetallePlanController:
         if not ok:
             return False, msg
 
-        # Crear registros nuevos para filas adicionales
-        for f in filas_validas[1:]:
-            ok_n, msg_n, id_nuevo = self._service.guardar_horario(GuardarHorarioDTO(
-                id_asignacion=int(id_asig),
-                id_docente=int(id_doc),
-                id_aula=int(id_aula),
-                id_periodo=periodo_dto.id,
-                dia=f.dia,
-                hora_inicio=f.hora_inicio,
-                hora_fin=f.hora_fin,
-                total_horas=f.delta,
-                id_plan=self._id_plan,
-                id_lies=self._state.id_lies_activa,
-                id_semestre=id_sem,
-            ))
-            if not ok_n:
-                return False, msg_n
-            if id_nuevo is not None:
-                self._state.ids_sesion.add(id_nuevo)
-
-        # Actualizar cachés
-        if es_tronco and id_materia is not None and id_sem is not None:
-            self._state.registrar_tronco(
-                id_sem, id_materia, filas_validas,
-                id_lies=self._state.id_lies_activa,
-                id_aula=int(id_aula), id_docente=int(id_doc),
-            )
-        elif not es_tronco and id_sem is not None and self._state.editando_id:
-            self._state.actualizar_optativa(
-                self._state.id_lies_activa, id_sem,
-                filas_validas, self._state.editando_id,
-            )
-
         return True, "¡Horario actualizado correctamente!"
 
     # ── Eliminar horario ──────────────────────────────────────
@@ -297,18 +232,12 @@ class DetallePlanController:
     def eliminar_horario(
         self, id_horario: int, id_sem_actual: int | None,
     ) -> tuple[bool, str]:
-        """Elimina un horario y actualiza cachés.
+        """Elimina un horario.
 
         Returns:
             (True, mensaje_ok) o (False, mensaje_error).
         """
         ok, msg = self._service.eliminar_horario(id_horario)
-        if ok:
-            self._state.ids_sesion.discard(id_horario)
-            if id_sem_actual is not None:
-                self._state.quitar_optativa(
-                    self._state.id_lies_activa, id_sem_actual, id_horario,
-                )
         return ok, msg
 
     # ── Cargar ────────────────────────────────────────────────
@@ -362,18 +291,16 @@ class DetallePlanController:
         id_lies: int,
         sem_opt_id: int | None,
     ) -> list:
-        """Lógica de negocio al cambiar de semestre.
+        """Lógica al cambiar de semestre.
 
-        Carga unidades, actualiza state.unidades y limpia cachés.
-        Retorna la lista de unidades ordenadas para que la View
-        solo actualice widgets.
+        Carga unidades y actualiza state.unidades.
+        Ya no limpia cachés — la BD es la fuente de verdad.
 
         Returns:
             Lista ordenada de UnidadAprendizajeDTO.
         """
         unidades = self.cargar_unidades(id_sem, id_lies, sem_opt_id)
         self._state.unidades = unidades
-        self._state.limpiar_todo()
         return unidades
 
     # ── PDF ───────────────────────────────────────────────────
@@ -385,13 +312,12 @@ class DetallePlanController:
         all_lies: list,
     ) -> tuple | None:
         """Prepara los datos necesarios para generar el PDF.
+        Usa BD como fuente única de verdad — sin filtrar por ids_sesion.
 
         Returns:
-            (registros, nombre_plan, lies_nombre, nombre_sem) o None si error.
+            (registros, nombre_plan, lies_nombre) o None si error.
         """
         if not id_sem:
-            return None
-        if not self._state.ids_sesion:
             return None
 
         todos = self._service.obtener_horarios_filtrados(
@@ -400,8 +326,7 @@ class DetallePlanController:
             id_semestre=id_sem,
             id_semestre_opt=sem_opt_id,
         )
-        registros = [r for r in todos if r.id_horario in self._state.ids_sesion]
-        if not registros:
+        if not todos:
             return None
 
         nombre_plan = self._service.obtener_nombre_plan(self._id_plan)
@@ -409,7 +334,7 @@ class DetallePlanController:
             (l.nombre for l in all_lies if l.id == self._state.id_lies_activa),
             "",
         )
-        return registros, nombre_plan, lies_nombre
+        return todos, nombre_plan, lies_nombre
 
     # ── Crear catálogos ───────────────────────────────────────
 

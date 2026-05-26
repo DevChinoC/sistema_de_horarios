@@ -28,10 +28,10 @@ def _dd_kw(width: int) -> dict:
 
         bgcolor=Colores.BLANCO,
         fill_color=Colores.BLANCO,
-        color=_BLANCO,
+        color= "#000000",
 
         text_style=ft.TextStyle(
-            color=_BLANCO,
+            color= "#000000",
             font_family=Fuentes.CAMPOS,
             size=13
         ),
@@ -55,7 +55,7 @@ def _dd_kw(width: int) -> dict:
 def _opcion(key: str, text: str) -> ft.dropdown.Option:
     return ft.dropdown.Option(
         key=key, text=text,
-        text_style=ft.TextStyle(color=_BLANCO, font_family=Fuentes.CAMPOS),
+        text_style=ft.TextStyle(color= "#000000", font_family=Fuentes.CAMPOS),
     )
 
 

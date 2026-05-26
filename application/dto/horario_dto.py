@@ -49,6 +49,7 @@ class PeriodoDTO:
 @dataclass
 class HorarioRegistradoDTO:
     id_horario:      int
+    id_detalle_horario: int
     clave:           str   # número de orden (001, 002…)
     semestre:        str
     unidad:          str
@@ -66,6 +67,7 @@ class HorarioRegistradoDTO:
 
 @dataclass
 class HorarioDetalleDTO:
+    id_detalle_horario: int
     id_horario:      int
     id_asignacion:   int
     id_semestre:     int

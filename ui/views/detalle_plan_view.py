@@ -207,9 +207,10 @@ class DetallePlanView(ft.Column):
 
         if self._all_lies:
             _id_lies_init = self._all_lies[0].id
+            self._todas_lies = self._all_lies
         else:
-            _all = service.obtener_todas_lies_del_plan(id_plan)
-            _id_lies_init = _all[0].id if _all else 0
+            self._todas_lies = service.obtener_todas_lies_del_plan(id_plan)
+            _id_lies_init = self._todas_lies[0].id if self._todas_lies else 0
         self._id_lies_activa = _id_lies_init
 
         # ── Estado centralizado (sesión, cachés, catálogos) ───
@@ -219,6 +220,11 @@ class DetallePlanView(ft.Column):
             id_lies_activa=_id_lies_init,
             sem_opt_id=self._sem_opt.id if self._sem_opt else None,
         )
+
+        # ── Flags de blindaje contra eventos automáticos de Flet ──
+        self._suspendiendo_eventos = False
+        self._modo_edicion = False
+
         # Poblar catálogos en el State
         self._state.aulas    = list(service.obtener_aulas())
         self._state.docentes = list(service.obtener_docentes())
@@ -706,17 +712,13 @@ class DetallePlanView(ft.Column):
     # ── Precarga de horarios desde historial ─────────────────
 
     def _precargar_horarios(self, id_plan_generado: int) -> None:
-        """Precarga los IDs de horarios de un plan_generado en la sesión
-        para que aparezcan en la tabla con editar/eliminar funcionales."""
+        """Precarga horarios de un plan_generado seleccionando el semestre
+        adecuado y recargando la tabla desde BD."""
         registros = self._service.obtener_horarios_de_plan_generado(id_plan_generado)
         if not registros:
             return
-        # Agregar todos los IDs a la sesión
-        for r in registros:
-            self._state.ids_sesion.add(r.id_horario)
         # Auto-seleccionar el primer semestre que tenga horarios
         if self._semestres and not self._dd_semestre.value:
-            # Buscar qué semestres tienen horarios precargados
             sems_con_datos = {r.numero_semestre for r in registros if r.numero_semestre > 0}
             sem_target = None
             for s in self._semestres:
@@ -729,10 +731,7 @@ class DetallePlanView(ft.Column):
             if self.page:
                 self._dd_semestre.update()
             self._on_semestre_cambiado(None)
-            # Restaurar ids_sesion ya que _on_semestre_cambiado la limpia
-            for r in registros:
-                self._state.ids_sesion.add(r.id_horario)
-        # Recargar tabla con los horarios precargados
+        # Recargar tabla desde BD
         self._recargar_tabla()
 
     # ── Builders de opciones ──────────────────────────────────
@@ -758,18 +757,21 @@ class DetallePlanView(ft.Column):
                                  else Colores.AZUL_PRIMARIO)
             if self.page:
                 btn.update()
-        # Limpiar tabla y sesión al cambiar de LIES
-        # (el caché de tronco persiste entre LIES — correcto)
-        self._tabla.rows = []
-        self._state.limpiar_sesion()
-        if self.page:
-            self._tabla.update()
+        # Recargar tabla desde BD al cambiar de LIES
         if self._dd_semestre.value:
             self._on_semestre_cambiado(None)
+        else:
+            self._tabla.rows = []
+            if self.page:
+                self._tabla.update()
 
     # ── Semestre → cargar unidades ────────────────────────────
 
     def _on_semestre_cambiado(self, _) -> None:
+        # ── Blindaje: ignorar eventos automáticos de Flet ─────
+        if self._suspendiendo_eventos:
+            return
+
         id_sem = self._dd_semestre.value
         if not id_sem:
             return
@@ -800,7 +802,9 @@ class DetallePlanView(ft.Column):
             self._dd_unidad.visible = True
             self._btn_buscar_unidad.visible = True
 
-        self._tabla.rows = []
+        # ── Recargar tabla desde BD (fuente única de verdad) ───
+        if not self._modo_edicion:
+            self._recargar_tabla()
 
         if self.page:
             self._page.update()
@@ -990,26 +994,14 @@ class DetallePlanView(ft.Column):
         if periodo_dto is None:
             self._msg("Error al registrar el periodo."); return
 
-        # ── Tipo de materia y semestre ─────────────────────────
-        id_materia = self._service.obtener_id_materia(int(id_asig))
-        es_tronco  = id_materia is not None
-        id_sem     = int(self._dd_semestre.value) if self._dd_semestre.value else None
+        id_sem = int(self._dd_semestre.value) if self._dd_semestre.value else None
 
         # ── Recopilar filas válidas ────────────────────────────
         filas_validas = self._recopilar_filas_validas()
         if filas_validas is None:
             return
 
-        # ── Validación de tronco común (por semestre) ──────────
-        error = self._state.validar_horario(
-            es_tronco, id_materia, id_sem, filas_validas,
-            id_aula=int(id_aula), id_docente=int(id_doc),
-        )
-        if error:
-            self._msg(error); return
-
-        # ── Guardar cada fila ─────────────────────────────────
-        ids_nuevos = []
+        # ── Guardar cada fila — el service valida contra BD real ──
         for f in filas_validas:
             ok, msg, id_nuevo = self._service.guardar_horario(GuardarHorarioDTO(
                 id_asignacion=int(id_asig),
@@ -1024,22 +1016,6 @@ class DetallePlanView(ft.Column):
             ))
             if not ok:
                 self._msg(msg); return
-            if id_nuevo is not None:
-                self._state.ids_sesion.add(id_nuevo)
-                ids_nuevos.append(id_nuevo)
-
-        # ── Actualizar caché de tronco u optativa ─────────────
-        if es_tronco and id_materia is not None and id_sem is not None:
-            self._state.registrar_tronco(
-                id_sem, id_materia, filas_validas,
-                id_lies=self._id_lies_activa,
-                id_aula=int(id_aula),
-                id_docente=int(id_doc),
-            )
-        elif not es_tronco and id_sem is not None:
-            for fila_d, id_h in zip(filas_validas, ids_nuevos):
-                self._state.registrar_optativa(
-                    self._id_lies_activa, id_sem, [fila_d], id_h)
 
         self._msg("¡Horario agregado correctamente!")
         self._recargar_tabla()
@@ -1048,26 +1024,32 @@ class DetallePlanView(ft.Column):
 
     # ── Edición: iniciar ──────────────────────────────────────
 
-    def _iniciar_edicion(self, id_horario: int) -> None:
-        """Carga los datos del horario en los campos del formulario.
-        Preserva la tabla y los IDs de sesión durante la edición."""
-        detalle = self._service.obtener_horario_detalle(id_horario)
+    def _iniciar_edicion(self, id_detalle: int) -> None:
+        """Carga los datos del detalle en los campos del formulario.
+        Usa flags de blindaje para evitar que Flet destruya estado."""
+        detalle = self._service.obtener_detalle_por_id(id_detalle)
         if detalle is None:
             self._msg("No se encontró el horario."); return
 
-        self._state.editando_id = id_horario
+        self._state.editando_id_detalle = id_detalle
+        self._modo_edicion = True
+        self._suspendiendo_eventos = True
 
-        # 1. Semestre — cargar unidades SIN limpiar tabla/sesión
+        # 1. Semestre — cargar unidades SIN limpiar tabla
         self._dd_semestre.value = str(detalle.id_semestre)
         if self.page:
             self._dd_semestre.update()
-        # Cargar unidades sin borrar la tabla ni los IDs de sesión
+        # Cargar unidades sin borrar la tabla
         self._cargar_unidades_sin_limpiar(str(detalle.id_semestre))
 
         # 2. Unidad de aprendizaje
         self._dd_unidad.value = str(detalle.id_asignacion)
         if self.page:
             self._dd_unidad.update()
+
+        # Reactivar eventos ANTES de callbacks que los necesiten
+        self._suspendiendo_eventos = False
+
         # Auto-tipo
         self._on_unidad_cambiada(None)
 
@@ -1082,7 +1064,7 @@ class DetallePlanView(ft.Column):
         if self.page:
             self._campo_periodo.update()
 
-        # 6. Horario (día + horas) – usar la primera fila
+        # 6. Horario (día + horas) – usar una sola fila (el detalle editado)
         # Limpiar filas extra y dejar solo una
         while len(self._filas_horario) > 1:
             f = self._filas_horario.pop()
@@ -1142,26 +1124,14 @@ class DetallePlanView(ft.Column):
     # ── Edición: cancelar ─────────────────────────────────────
 
     def _cancelar_edicion(self) -> None:
-        """Restaura el formulario al modo agregar, conservando la tabla y el semestre."""
-        self._state.editando_id = None
-
-        # Restaurar botones: mostrar "+ Agregar", ocultar "Guardar" y "Cancelar"
-        self._btn_accion.visible = True
-        self._btn_guardar.visible = False
-        self._btn_cancelar.visible = False
-
-        # Limpiar campos del formulario (NO el semestre para conservar la tabla)
-        self._post_agregar_cleanup()
-
-        # Mostrar las materias de la sesión actual en la tabla
-        self._recargar_tabla()
-
-    # ── Edición: guardar cambios ──────────────────────────────
+        """Restaura el formulario al modo agregar.
+        Delega a _finalizar_edicion para evitar duplicar logica."""
+        self._finalizar_edicion()
 
     def _guardar_edicion(self) -> None:
-        """Guarda los cambios del horario en edición.
-        Soporta múltiples filas: actualiza el registro original con la primera
-        fila y crea nuevos registros para las filas adicionales."""
+        """Guarda los cambios del detalle en edición.
+        Actualiza SOLO el detalle específico (id_detalle_horario).
+        Luego recarga TODO el estado visual desde BD."""
         campos = self._validar_campos_formulario()
         if campos is None:
             return
@@ -1171,28 +1141,17 @@ class DetallePlanView(ft.Column):
         if periodo_dto is None:
             self._msg("Error al registrar el periodo."); return
 
-        # ── Recopilar TODAS las filas válidas ────────────────────
+        # ── Recopilar la fila del formulario ────────────────────
         filas_validas = self._recopilar_filas_validas()
         if filas_validas is None:
             return
 
-        # ── Validación de tronco común (por semestre) ──────────
-        id_materia = self._service.obtener_id_materia(int(id_asig))
-        es_tronco  = id_materia is not None
-        id_sem     = int(self._dd_semestre.value) if self._dd_semestre.value else None
+        id_sem = int(self._dd_semestre.value) if self._dd_semestre.value else None
 
-        error = self._state.validar_horario(
-            es_tronco, id_materia, id_sem, filas_validas,
-            id_horario_excluir=self._state.editando_id,
-            id_aula=int(id_aula), id_docente=int(id_doc),
-        )
-        if error:
-            self._msg(error); return
-
-        # ── Actualizar el registro original con la primera fila ──
+        # ── Actualizar SOLO el detalle específico en BD ──────────
         f0 = filas_validas[0]
-        ok, msg = self._service.actualizar_horario(
-            id_horario=self._state.editando_id,
+        ok, msg = self._service.actualizar_detalle(
+            id_detalle=self._state.editando_id_detalle,
             dto=GuardarHorarioDTO(
                 id_asignacion=int(id_asig),
                 id_docente=int(id_doc),
@@ -1208,42 +1167,13 @@ class DetallePlanView(ft.Column):
 
         if not ok:
             self._msg(msg)
-            self._cancelar_edicion()
+            # Salir de modo edición incluso si falla
+            self._finalizar_edicion()
             return
 
-        # ── Crear registros nuevos para filas adicionales ───────
-        for f in filas_validas[1:]:
-            ok_n, msg_n, id_nuevo = self._service.guardar_horario(GuardarHorarioDTO(
-                id_asignacion=int(id_asig),
-                id_docente=int(id_doc),
-                id_aula=int(id_aula),
-                id_periodo=periodo_dto.id,
-                dia=f.dia, hora_inicio=f.hora_inicio,
-                hora_fin=f.hora_fin,
-                total_horas=f.delta, id_plan=self._id_plan,
-                id_lies=self._id_lies_activa,
-                id_semestre=id_sem,
-            ))
-            if not ok_n:
-                self._msg(msg_n); break
-            if id_nuevo is not None:
-                self._state.ids_sesion.add(id_nuevo)
-
-        # ── Actualizar caché de tronco u optativa ─────────────
-        if es_tronco and id_materia is not None and id_sem is not None:
-            self._state.registrar_tronco(
-                id_sem, id_materia, filas_validas,
-                id_lies=self._id_lies_activa,
-                id_aula=int(id_aula),
-                id_docente=int(id_doc),
-            )
-        elif not es_tronco and id_sem is not None and self._state.editando_id is not None:
-            self._state.actualizar_optativa(
-                self._id_lies_activa, id_sem, filas_validas, self._state.editando_id)
-
         self._msg("¡Horario actualizado correctamente!")
-        self._cancelar_edicion()
-        self._state.reconstruir_caches(self._dd_semestre.value)
+        # ── Recarga transaccional: BD → tabla + preview + totales ──
+        self._finalizar_edicion()
 
     # ── Limpieza de formulario ─────────────────────────────────
 
@@ -1288,35 +1218,34 @@ class DetallePlanView(ft.Column):
         if self.page:
             self._page.update()
 
-    # ── Reconstrucción de cachés (delegado al state) ──────────
+    # ── (cachés eliminados — la BD es la fuente de verdad) ────
 
-    def _reconstruir_caches(self) -> None:
-        """Delegación a HorarioStateManager."""
-        self._state.reconstruir_caches(self._dd_semestre.value)
+    # ── Fuente única de verdad: BD ─────────────────────────────
+
+    def _obtener_registros_visibles(self):
+        """Fuente única de verdad para tabla, preview y PDF.
+        Consulta BD directamente — NO depende de ids_sesion."""
+        id_sem = self._dd_semestre.value
+        if not id_sem:
+            return []
+        return self._service.obtener_horarios_filtrados(
+            id_plan=self._id_plan,
+            id_lies=self._id_lies_activa,
+            id_semestre=int(id_sem),
+            id_semestre_opt=self._sem_opt.id if self._sem_opt else None,
+        )
 
     # ── Tabla inferior ────────────────────────────────────────
 
     def _recargar_tabla(self) -> None:
-        """Recarga la tabla mostrando ÚNICAMENTE los horarios creados en esta sesión."""
+        """Recarga la tabla desde BD — fuente única de verdad.
+        Nunca depende de estado en memoria."""
         try:
-            if not self._state.ids_sesion:
-                self._tabla.rows = []
-                if self.page:
-                    self._tabla.update()
-                return
-            id_sem = self._dd_semestre.value
-            if not id_sem:
-                self._tabla.rows = []
-                if self.page:
-                    self._tabla.update()
-                return
-            todos = self._service.obtener_horarios_filtrados(
-                id_plan=self._id_plan,
-                id_lies=self._id_lies_activa,
-                id_semestre=int(id_sem),
-                id_semestre_opt=self._sem_opt.id if self._sem_opt else None,
-            )
-            registros = [r for r in todos if r.id_horario in self._state.ids_sesion]
+            registros = self._obtener_registros_visibles()
+            # Validación: siempre debe ser una lista
+            if not isinstance(registros, list):
+                registros = list(registros) if registros else []
+            print(f"[_recargar_tabla] {len(registros)} registros cargados desde BD")
             self._tabla.rows = HorarioRowBuilder.build_many(
                 registros,
                 on_editar=self._on_editar_click,
@@ -1327,60 +1256,75 @@ class DetallePlanView(ft.Column):
         except Exception as ex:
             self._msg(f"Error al recargar tabla: {ex}")
 
+    def _finalizar_edicion(self) -> None:
+        """Limpia el estado de edición y recarga TODO el estado visual.
+
+        Flujo transaccional:
+            1. Limpiar estado de edición
+            2. Restaurar formulario al modo agregar
+            3. Recargar tabla completa desde BD
+        """
+        # Blindar contra eventos asíncronos de Flet
+        self._suspendiendo_eventos = True
+
+        # 1. Limpiar estado de edición
+        self._state.editando_id_detalle = None
+        self._modo_edicion = False
+
+        # 2. Restaurar botones al modo agregar
+        self._btn_accion.visible = True
+        self._btn_guardar.visible = False
+        self._btn_cancelar.visible = False
+
+        # 3. Limpiar formulario (NO el semestre, para conservar la tabla)
+        self._post_agregar_cleanup()
+
+        # 4. Recargar tabla COMPLETA desde BD (fuente única de verdad)
+        self._recargar_tabla()
+
+        # 5. Reactivar eventos
+        self._suspendiendo_eventos = False
+
     def _confirmar_eliminar(self, id_horario: int) -> None:
         """Delegado al presenter."""
         self._presenter.confirmar_eliminar(
             on_confirmar=lambda: self._eliminar(id_horario)
         )
 
-    def _on_editar_click(self, id_horario: int, _=None) -> None:
-        """Wrapper para functools.partial en tabla."""
-        self._iniciar_edicion(id_horario)
+    def _on_editar_click(self, id_detalle: int, _=None) -> None:
+        """Wrapper para functools.partial en tabla — recibe id_detalle_horario."""
+        self._iniciar_edicion(id_detalle)
 
     def _on_eliminar_click(self, id_horario: int, _=None) -> None:
         """Wrapper para functools.partial en tabla."""
         self._confirmar_eliminar(id_horario)
 
     def _eliminar(self, id_horario: int) -> None:
-        id_sem_actual = int(self._dd_semestre.value) if self._dd_semestre.value else None
         ok, msg = self._service.eliminar_horario(id_horario)
         self._msg(msg)
         if ok:
-            self._state.ids_sesion.discard(id_horario)
-            if id_sem_actual is not None:
-                self._state.quitar_optativa(
-                    self._id_lies_activa, id_sem_actual, id_horario)
             self._recargar_tabla()
-            self._reconstruir_caches()
 
     # ── Helpers de PDF ─────────────────────────────────────────
 
     def _datos_para_pdf(self):
         """Retorna (registros, nombre_plan, lies_nombre, nombre_sem) o None.
-        Usa SOLO los IDs de horarios creados en esta sesión.
+        Usa BD como fuente única de verdad.
         """
         id_sem = self._dd_semestre.value
         if not id_sem:
             self._msg("Selecciona un semestre antes de exportar.")
             return None
-        if not self._state.ids_sesion:
-            self._msg("No hay horarios en esta sesión para exportar. "
-                      "Agrega al menos un horario primero.")
-            return None
-        # Obtener todos y filtrar solo los de sesión
-        todos = self._service.obtener_horarios_filtrados(
-            id_plan=self._id_plan,
-            id_lies=self._id_lies_activa,
-            id_semestre=int(id_sem),
-            id_semestre_opt=self._sem_opt.id if self._sem_opt else None,
-        )
-        registros = [r for r in todos if r.id_horario in self._state.ids_sesion]
+        # Consultar BD directamente — sin filtrar por ids_sesion
+        registros = self._obtener_registros_visibles()
         if not registros:
-            self._msg("No hay horarios de sesión para exportar.")
+            self._msg("No hay horarios para exportar. "
+                      "Agrega al menos un horario primero.")
             return None
         nombre_plan = self._service.obtener_nombre_plan(self._id_plan)
         lies_nombre = ""
-        for lies in self._all_lies:
+        # Buscar en todas las LIES (no solo MIIDT) para PDF
+        for lies in (self._all_lies or self._todas_lies):
             if lies.id == self._id_lies_activa:
                 lies_nombre = lies.nombre
                 break

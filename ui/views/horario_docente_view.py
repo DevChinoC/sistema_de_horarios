@@ -280,23 +280,8 @@ class HorarioDocenteView(ft.Container):
             visible=False,
         )
 
-        self._tabla_prev = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text(
-                    c, size=11, weight=ft.FontWeight.W_600,
-                    font_family=Fuentes.CAMPOS, color=Colores.BLANCO))
-                for c in ["Hora"] + _DIAS
-            ],
-            rows=[],
-            heading_row_color=Colores.AZUL_PRIMARIO,
-            heading_row_height=48,
-            data_row_min_height=70,
-            data_row_max_height=None,
-            column_spacing=0,
-            horizontal_margin=0,
-            divider_thickness=0,
-            border=ft.border.all(1, _NEGRO),
-            border_radius=0,
+        self._tabla_prev = ft.Column(
+            spacing=0,
             visible=False,
         )
 
@@ -564,59 +549,149 @@ class HorarioDocenteView(ft.Container):
             return
 
         filas = self._resumen.filas
-        franjas = sorted(set(
-            (f.hora_inicio, f.hora_fin) for f in filas
-            if f.hora_inicio and f.hora_fin
-        ))
+
+        franjas = sorted(
+            set(
+                (f.hora_inicio, f.hora_fin)
+                for f in filas
+                if f.hora_inicio and f.hora_fin
+            )
+        )
+
         mapa: dict[tuple, set[str]] = {}
+
         for f in filas:
             if f.dia and f.hora_inicio:
                 key = (f.dia, f.hora_inicio)
+
                 label = f.nombre_materia
+
                 if f.nombre_lies:
                     label += f" ({f.nombre_lies})"
+
                 mapa.setdefault(key, set()).add(label)
 
-        rows = []
-        for (hi, hf) in franjas:
-            hora_txt = f"{hi} - {hf}"
-            cells = [
-                ft.DataCell(
-                    ft.Container(
-                        width=140,
-                        alignment=ft.alignment.center,
-                        content=ft.Text(
-                            hora_txt,
-                            size=11,
-                            text_align=ft.TextAlign.CENTER,
-                            font_family=Fuentes.CAMPOS,
-                            color=Colores.TEXTO,
-                            weight=ft.FontWeight.W_600,
-                        ),
+        def _altura_fila(textos: list[str]) -> int:
+            max_lineas = 1
+
+            for texto in textos:
+                if texto:
+                    max_lineas = max(
+                        max_lineas,
+                        texto.count("\n") + 1
                     )
-                ),
-            ]
+
+            return max(45, (max_lineas * 18) + 12)
+
+        # ───────────────── HEADER ─────────────────
+
+        header = ft.Row(
+            controls=[
+                ft.Container(
+                    width=140,
+                    height=48,
+                    bgcolor=Colores.AZUL_PRIMARIO,
+                    border=ft.border.all(1, "#D0D7E2"),
+                    alignment=ft.alignment.center,
+                    content=ft.Text(
+                        "Hora",
+                        size=11,
+                        weight=ft.FontWeight.W_600,
+                        text_align=ft.TextAlign.CENTER,
+                        font_family=Fuentes.CAMPOS,
+                        color=Colores.BLANCO,
+                    ),
+                )
+            ] + [
+                ft.Container(
+                    width=220,
+                    height=48,
+                    bgcolor=Colores.AZUL_PRIMARIO,
+                    border=ft.border.all(1, "#D0D7E2"),
+                    alignment=ft.alignment.center,
+                    content=ft.Text(
+                        dia,
+                        size=11,
+                        weight=ft.FontWeight.W_600,
+                        text_align=ft.TextAlign.CENTER,
+                        font_family=Fuentes.CAMPOS,
+                        color=Colores.BLANCO,
+                    ),
+                )
+                for dia in _DIAS
+            ],
+            spacing=0,
+        )
+
+        filas_ui = [header]
+
+        # ───────────────── FILAS ─────────────────
+
+        for (hi, hf) in franjas:
+
+            hora_txt = f"{hi} - {hf}"
+
+            materias_por_fila = []
+
             for dia in _DIAS:
                 materias_set = mapa.get((dia, hi), set())
                 materia = "\n".join(sorted(materias_set))
-                cell_content = ft.Container(
-                    width=220,
+                materias_por_fila.append(materia)
+
+            alto_fila = _altura_fila(materias_por_fila)
+
+            controles_fila = [
+                ft.Container(
+                    width=140,
+                    height=alto_fila,
+                    border=ft.border.all(1, "#D0D7E2"),
                     alignment=ft.alignment.center,
-                    bgcolor="#B5CBF7" if materia else None,
-                    padding=ft.padding.all(6),
                     content=ft.Text(
-                        materia,
-                        size=10,
+                        hora_txt,
+                        size=11,
                         text_align=ft.TextAlign.CENTER,
                         font_family=Fuentes.CAMPOS,
                         color=Colores.TEXTO,
-                        no_wrap=False,
+                        weight=ft.FontWeight.W_600,
                     ),
                 )
-                cells.append(ft.DataCell(cell_content))
-            rows.append(ft.DataRow(cells=cells))
+            ]
 
-        self._tabla_prev.rows = rows
+            for dia in _DIAS:
+
+                materias_set = mapa.get((dia, hi), set())
+
+                materia = "\n".join(sorted(materias_set))
+
+                controles_fila.append(
+                    ft.Container(
+                        width=220,
+                        height=alto_fila,
+                        bgcolor="#B5CBF7" if materia else None,
+                        border=ft.border.all(1, "#D0D7E2"),
+                        alignment=ft.alignment.top_center,
+                        padding=ft.padding.all(6),
+                        content=ft.Text(
+                            materia,
+                            size=10,
+                            text_align=ft.TextAlign.CENTER,
+                            font_family=Fuentes.CAMPOS,
+                            color=Colores.TEXTO,
+                            no_wrap=False,
+                            max_lines=None,
+                        ),
+                    )
+                )
+
+            filas_ui.append(
+                ft.Row(
+                    controls=controles_fila,
+                    spacing=0,
+                )
+            )
+
+        self._tabla_prev.controls = filas_ui
+
         self._tabla_prev.visible = True
         self._lbl_prev.visible = True
         self._btn_ver.visible = True

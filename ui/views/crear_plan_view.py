@@ -279,7 +279,7 @@ class CrearPlanView(ft.Container):
 
     Reglas de negocio:
     • Si el grado es MIIDT → el plan se asocia a TODAS las LIES.
-    • Si el grado NO es MIIDT → el plan se asocia solo a la primera LIES.
+    • Si el grado NO es MIIDT (ej. DIIDT) → el plan NO se asocia a ninguna LIES.
     • Tipo Optativa → semestre fijo en 0 (bloqueado).
     • Tipo Tronco   → semestre 1-8 (opción 0 no aparece).
     • Fila inicial vacía: solo hint_text, sin texto prefijado.
@@ -553,16 +553,18 @@ class CrearPlanView(ft.Container):
             self._mostrar_mensaje("Selecciona un membrete antes de guardar.")
             return
 
-        # LIES: solo MIIDT usa todas; otros grados → solo la primera
-        _NIVEL_CON_LIES = "MIIDT"
-        if grado.upper() == _NIVEL_CON_LIES:
+        # LIES: MIIDT usa todas las LIES (visibles en tabs y PDF).
+        # DIIDT/otros: lies_ids vacío → el service usará LIES interna
+        # para satisfacer NOT NULL de detalle_semestre, pero el plan
+        # NO se asocia a ninguna LIES en plan_lies (invisible al usuario).
+        if grado.upper() == "MIIDT":
             lies_ids = [l["id"] for l in self._todas_lies]
+            if not lies_ids:
+                self._mostrar_mensaje("No hay LIES registradas en la BD.")
+                return
         else:
-            lies_ids = [self._todas_lies[0]["id"]] if self._todas_lies else []
+            lies_ids = []  # DIIDT / otros: sin LIES visible
 
-        if not lies_ids:
-            self._mostrar_mensaje("No hay LIES registradas en la BD.")
-            return
 
         dto = CrearPlanDTO(
             nombre=nombre,

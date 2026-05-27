@@ -21,8 +21,8 @@ class PlanEstudiosDomain:
     def es_valido(self) -> tuple[bool, str]:
         if not self.nombre.strip():
             return False, "El nombre del plan no puede estar vacío."
-        if not self.lies_ids:
-            return False, "Selecciona al menos una LIES."
+        # lies_ids puede estar vacío para niveles sin LIES (DIIDT, etc.)
+        # La validación de LIES corresponde al servicio según el nivel.
         if not self.filas:
             return False, "Agrega al menos una materia al plan."
         for i, f in enumerate(self.filas):

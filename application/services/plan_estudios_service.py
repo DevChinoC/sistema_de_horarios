@@ -57,14 +57,16 @@ class PlanEstudiosService:
             session.close()
 
     def crear_plan(self, dto: CrearPlanDTO) -> tuple[bool, str]:
-        """Crea un plan asociado a TODAS las LIES.
+        """Crea un plan de estudios.
 
-        - Materias tronco (id_tipo=1): semestres 1-8, se crea detalle
-          para CADA LIES y asignación a materias_tronco.
-        - Optativas (id_tipo=2, semestre=0): se crean en tabla optativas
-          y detalle para CADA LIES con semestre 0.
-        - El membrete se guarda en ui/membretes/<id_plan>/ mediante
-          GestorMembrete (no se persiste en BD).
+        MIIDT:
+          - Asocia el plan a TODAS las LIES en plan_lies.
+          - Crea detalle_semestre para CADA LIES.
+        DIIDT / otros niveles:
+          - NO asocia el plan a ninguna LIES en plan_lies.
+          - Usa la primera LIES disponible internamente para satisfacer
+            el constraint NOT NULL de detalle_semestre.id_lies.
+          - El usuario NUNCA ve esa LIES interna.
         """
         dominio = PlanEstudiosDomain(
             nombre=dto.nombre, id_nivel=dto.id_nivel, lies_ids=dto.lies_ids,
@@ -78,8 +80,25 @@ class PlanEstudiosService:
         session = self._db.get_session()
         repo    = PlanEstudiosRepository(session)
         try:
-            # Crear plan vinculado a TODAS las LIES (sin membrete en BD)
-            plan = repo.crear_plan(dominio.nombre, dominio.id_nivel, dominio.lies_ids)
+            # Determinar si el nivel usa LIES múltiples (MIIDT)
+            from infrastructure.db.models import NivelAcademicoModel
+            nivel_obj = session.query(NivelAcademicoModel).get(dominio.id_nivel)
+            es_miidt = nivel_obj and nivel_obj.nombre.upper() == "MIIDT"
+
+            # MIIDT → asociar plan a TODAS las LIES en plan_lies
+            # Otros → NO asociar a plan_lies (el usuario nunca ve la LIES)
+            lies_para_plan = dominio.lies_ids if es_miidt else []
+            plan = repo.crear_plan(dominio.nombre, dominio.id_nivel, lies_para_plan)
+
+            # lies_ids_internos: para satisfacer NOT NULL de detalle_semestre.id_lies
+            # Para MIIDT: todas las LIES visibles
+            # Para otros: la primera LIES disponible (interna, invisible al usuario)
+            lies_ids_internos = dominio.lies_ids
+            if not lies_ids_internos:
+                from infrastructure.db.models import LiesModel
+                primera = session.query(LiesModel).order_by(LiesModel.id_lies).first()
+                lies_ids_internos = [primera.id_lies] if primera else []
+
             semestres_creados: dict[int, int] = {}
 
             for fila in dominio.filas:
@@ -102,8 +121,8 @@ class PlanEstudiosService:
                         session.add(mat)
                         session.flush()
 
-                    # Crear detalle + asignación para CADA LIES
-                    for lies_id in dominio.lies_ids:
+                    # Crear detalle + asignación para CADA LIES interna
+                    for lies_id in lies_ids_internos:
                         detalle = repo.crear_detalle(
                             fila.nombre_materia,
                             semestres_creados[num],
@@ -121,8 +140,8 @@ class PlanEstudiosService:
                     session.add(opt)
                     session.flush()
 
-                    # Crear detalle + asignación para CADA LIES
-                    for lies_id in dominio.lies_ids:
+                    # Crear detalle + asignación para CADA LIES interna
+                    for lies_id in lies_ids_internos:
                         detalle = repo.crear_detalle(
                             fila.nombre_materia,
                             semestres_creados[num],

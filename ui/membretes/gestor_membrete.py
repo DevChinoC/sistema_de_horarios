@@ -1,58 +1,50 @@
 """gestor_membrete.py
 Responsabilidad única: copiar/eliminar/resolver la ruta del membrete
-de un plan dentro de la carpeta ui/membretes/<id_plan>/.
+de un plan dentro de un directorio persistente de datos de usuario.
 
-Principios POO aplicados:
-  - Encapsulamiento  → toda la lógica de rutas vive aquí.
-  - Responsabilidad única → solo gestiona archivos de membretes.
-  - Abierto/cerrado  → se puede extender la estrategia de nombrado
-                        sin tocar el resto del sistema.
+El directorio de almacenamiento es:
+  Windows : C:/Users/<usuario>/AppData/Local/SistemaHorarios/membretes/
+  macOS   : ~/Library/Application Support/SistemaHorarios/membretes/
+  Linux   : ~/.local/share/SistemaHorarios/membretes/
+
+Esto garantiza que funciona tanto en desarrollo como en el ejecutable
+empaquetado, donde ui/membretes/ puede ser de solo lectura.
 """
 
 import os
 import shutil
+import platform
 from pathlib import Path
 
 
+def _directorio_app() -> Path:
+    """Devuelve el directorio de datos persistentes de la aplicación."""
+    sistema = platform.system()
+    if sistema == "Windows":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    elif sistema == "Darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    return base / "SistemaHorarios" / "membretes"
+
+
 class GestorMembrete:
-    """Gestiona el almacenamiento local de imágenes de membrete.
+    """Gestiona el almacenamiento de imágenes de membrete por plan.
 
     Cada plan tiene su propio subdirectorio:
-        ui/membretes/<id_plan>/membrete.<ext>
-
-    La ruta base se calcula a partir de la ubicación de este mismo
-    módulo, por lo que es independiente del directorio de trabajo.
+        <directorio_app>/membretes/<id_plan>/membrete.<ext>
     """
-
-    # Carpeta raíz de membretes, relativa a este archivo
-    _CARPETA_RAIZ: Path = Path(__file__).parent
-
-    # ── Constructor ──────────────────────────────────────────────
 
     def __init__(self, id_plan: int) -> None:
         if id_plan <= 0:
             raise ValueError(f"id_plan debe ser positivo, recibido: {id_plan}")
-        self._id_plan   = id_plan
-        self._directorio = self._CARPETA_RAIZ / str(id_plan)
+        self._id_plan    = id_plan
+        self._directorio = _directorio_app() / str(id_plan)
 
-    # ── API pública ──────────────────────────────────────────────
+    # ── API pública (sin cambios, compatible con el resto del sistema) ──
 
     def guardar(self, ruta_origen: str) -> str:
-        """Copia la imagen al directorio del plan y devuelve la ruta destino.
-
-        Parámetros
-        ----------
-        ruta_origen : ruta absoluta del archivo seleccionado por el usuario.
-
-        Retorna
-        -------
-        Ruta absoluta del archivo copiado dentro del proyecto.
-
-        Excepciones
-        -----------
-        FileNotFoundError  si ruta_origen no existe.
-        ValueError         si la extensión no está permitida.
-        """
         origen = Path(ruta_origen)
         if not origen.is_file():
             raise FileNotFoundError(f"Archivo no encontrado: {ruta_origen}")
@@ -63,15 +55,11 @@ class GestorMembrete:
 
         self._asegurar_directorio()
         destino = self._directorio / f"membrete{ext}"
-
-        # Si ya existe un membrete previo con distinta extensión, se elimina
         self._limpiar_anteriores(ext)
-
         shutil.copy2(str(origen), str(destino))
         return str(destino)
 
     def obtener_ruta(self) -> str | None:
-        """Devuelve la ruta del membrete guardado o None si no existe."""
         if not self._directorio.is_dir():
             return None
         for ext in (".png", ".jpg", ".jpeg"):
@@ -81,28 +69,21 @@ class GestorMembrete:
         return None
 
     def eliminar(self) -> None:
-        """Borra el membrete (si existe) del directorio del plan."""
         ruta = self.obtener_ruta()
         if ruta:
             Path(ruta).unlink(missing_ok=True)
 
-    # ── Métodos privados ─────────────────────────────────────────
+    # ── Privados ────────────────────────────────────────────────
 
     def _asegurar_directorio(self) -> None:
         self._directorio.mkdir(parents=True, exist_ok=True)
 
     def _limpiar_anteriores(self, nueva_ext: str) -> None:
-        """Elimina membretes previos si tienen una extensión diferente."""
         for ext in (".png", ".jpg", ".jpeg"):
             if ext == nueva_ext:
                 continue
-            previo = self._directorio / f"membrete{ext}"
-            previo.unlink(missing_ok=True)
+            (self._directorio / f"membrete{ext}").unlink(missing_ok=True)
 
-
-# ── Función de conveniencia (no rompe POO, es un factory helper) ───
 
 def resolver_membrete_plan(id_plan: int) -> str | None:
-    """Atajo para obtener la ruta del membrete de un plan sin instanciar
-    directamente GestorMembrete desde capas superiores."""
     return GestorMembrete(id_plan).obtener_ruta()

@@ -130,8 +130,10 @@ class GeneradorPDF:
         )
         story.append(Paragraph(
             f"Plan de estudios: <b>{self._nombre_plan}</b>", estilo_enc))
-        story.append(Paragraph(
-            f"Lies: <b>{self._nombre_lies}</b>", estilo_enc))
+        # Solo mostrar LIES si tiene valor (MIIDT); omitir para DIIDT/otros
+        if self._nombre_lies:
+            story.append(Paragraph(
+                f"Lies: <b>{self._nombre_lies}</b>", estilo_enc))
         if self._nombre_sem:
             story.append(Paragraph(
                 f"Semestre: <b>{self._nombre_sem}</b>", estilo_enc))

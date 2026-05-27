@@ -101,7 +101,7 @@ class HorarioService:
     def obtener_unidades(
         self,
         id_plan: int,
-        id_lies: int,
+        id_lies: int | None,
         id_semestre: int | None = None,
     ) -> list[UnidadAprendizajeDTO]:
         session = self._db.get_session()

@@ -205,25 +205,24 @@ class DetallePlanView(ft.Column):
         self._all_lies  = service.obtener_lies_del_plan(id_plan)
         self._tipos     = service.obtener_tipos_materia()
 
-        if self._all_lies:
-            _id_lies_init = self._all_lies[0].id
-            self._todas_lies = self._all_lies
-        else:
-            self._todas_lies = service.obtener_todas_lies_del_plan(id_plan)
-            _id_lies_init = self._todas_lies[0].id if self._todas_lies else 0
+        # MIIDT: tiene LIES → inicializar con la primera (tabs visibles)
+        # DIIDT/otros: sin LIES → id_lies_activa = None (sin tabs, sin filtro)
+        self._todas_lies = list(self._all_lies)
+        _id_lies_init = self._all_lies[0].id if self._all_lies else None
         self._id_lies_activa = _id_lies_init
 
         # ── Estado centralizado (sesión, cachés, catálogos) ───
         self._state = DetallePlanState(
             service=service,
             id_plan=id_plan,
-            id_lies_activa=_id_lies_init,
+            id_lies_activa=_id_lies_init,  # None para DIIDT/otros
             sem_opt_id=self._sem_opt.id if self._sem_opt else None,
         )
 
         # ── Flags de blindaje contra eventos automáticos de Flet ──
         self._suspendiendo_eventos = False
         self._modo_edicion = False
+        self._semestre_filtro_actual = None  # filtro real para tabla/PDF
 
         # Poblar catálogos en el State
         self._state.aulas    = list(service.obtener_aulas())
@@ -728,6 +727,7 @@ class DetallePlanView(ft.Column):
             if sem_target is None:
                 sem_target = self._semestres[0]
             self._dd_semestre.value = str(sem_target.id)
+            self._semestre_filtro_actual = str(sem_target.id)
             if self.page:
                 self._dd_semestre.update()
             self._on_semestre_cambiado(None)
@@ -775,6 +775,9 @@ class DetallePlanView(ft.Column):
         id_sem = self._dd_semestre.value
         if not id_sem:
             return
+
+        # Persistir el filtro visual (NO se toca durante edición)
+        self._semestre_filtro_actual = id_sem
 
         # ── Lógica delegada al controller ─────────────────────
         unidades = self._ctrl.cambiar_semestre(
@@ -1035,7 +1038,9 @@ class DetallePlanView(ft.Column):
         self._modo_edicion = True
         self._suspendiendo_eventos = True
 
-        # 1. Semestre — cargar unidades SIN limpiar tabla
+        # 1. Semestre — poblar formulario SIN alterar el filtro.
+        #    _suspendiendo_eventos=True bloquea _on_semestre_cambiado,
+        #    por lo que _semestre_filtro_actual NO cambia aqui.
         self._dd_semestre.value = str(detalle.id_semestre)
         if self.page:
             self._dd_semestre.update()
@@ -1225,7 +1230,7 @@ class DetallePlanView(ft.Column):
     def _obtener_registros_visibles(self):
         """Fuente única de verdad para tabla, preview y PDF.
         Consulta BD directamente — NO depende de ids_sesion."""
-        id_sem = self._dd_semestre.value
+        id_sem = self._semestre_filtro_actual
         if not id_sem:
             return []
         return self._service.obtener_horarios_filtrados(
@@ -1245,7 +1250,7 @@ class DetallePlanView(ft.Column):
             # Validación: siempre debe ser una lista
             if not isinstance(registros, list):
                 registros = list(registros) if registros else []
-            print(f"[_recargar_tabla] {len(registros)} registros cargados desde BD")
+            print(f"[_recargar_tabla] filtro={self._semestre_filtro_actual}, {len(registros)} registros desde BD")
             self._tabla.rows = HorarioRowBuilder.build_many(
                 registros,
                 on_editar=self._on_editar_click,
@@ -1271,18 +1276,24 @@ class DetallePlanView(ft.Column):
         self._state.editando_id_detalle = None
         self._modo_edicion = False
 
-        # 2. Restaurar botones al modo agregar
+        # 2. Restaurar dropdown al semestre-filtro original
+        if self._semestre_filtro_actual:
+            self._dd_semestre.value = self._semestre_filtro_actual
+            if self.page:
+                self._dd_semestre.update()
+
+        # 3. Restaurar botones al modo agregar
         self._btn_accion.visible = True
         self._btn_guardar.visible = False
         self._btn_cancelar.visible = False
 
-        # 3. Limpiar formulario (NO el semestre, para conservar la tabla)
+        # 4. Limpiar formulario (NO el semestre, para conservar la tabla)
         self._post_agregar_cleanup()
 
-        # 4. Recargar tabla COMPLETA desde BD (fuente única de verdad)
+        # 5. Recargar tabla COMPLETA desde BD (usa _semestre_filtro_actual)
         self._recargar_tabla()
 
-        # 5. Reactivar eventos
+        # 6. Reactivar eventos
         self._suspendiendo_eventos = False
 
     def _confirmar_eliminar(self, id_horario: int) -> None:
@@ -1311,7 +1322,7 @@ class DetallePlanView(ft.Column):
         """Retorna (registros, nombre_plan, lies_nombre, nombre_sem) o None.
         Usa BD como fuente única de verdad.
         """
-        id_sem = self._dd_semestre.value
+        id_sem = self._semestre_filtro_actual
         if not id_sem:
             self._msg("Selecciona un semestre antes de exportar.")
             return None
@@ -1397,6 +1408,7 @@ class DetallePlanView(ft.Column):
 
     def _volver(self) -> None:
         self._state.limpiar_completo()
+        self._semestre_filtro_actual = None
 
         # Resetear semestre (no cubierto por _post_agregar_cleanup)
         self._dd_semestre = reset_dropdown(self._dd_semestre, disabled=False)

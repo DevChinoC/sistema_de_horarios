@@ -400,12 +400,11 @@ class PlanesView(ft.Column):
     def _cambiar_tab(self, tab: str) -> None:
         if tab == "Crear plan":
             if self._plan_svc:
-                lies_lista = self._plan_svc.obtener_lies()
-                lies_activa = lies_lista[0] if lies_lista else {"id": 1, "nombre": "TICs"}
+                # lies_activa eliminada: CrearPlanView obtiene sus LIES internamente
                 vista_crear = CrearPlanView(
                     page=self._page,
                     service=self._plan_svc,
-                    lies_activa=lies_activa,
+                    lies_activa={},  # ignorado, mantenido por compatibilidad
                     on_guardado=lambda: self._tabs.seleccionar_tab("Planes de estudios"),
                 )
                 self._area_contenido.controls = [

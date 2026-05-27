@@ -42,12 +42,14 @@ class HorarioRepository:
     def obtener_unidades(
         self,
         id_plan: int,
-        id_lies: int,
+        id_lies: int | None,
         id_semestre: int | None = None,
     ) -> list[tuple]:
         """Retorna (id_detalle, id_asignacion, nombre, tipo, numero_semestre).
 
-        Filtra siempre por lies. Opcionalmente filtra por semestre.
+        Si id_lies es None (DIIDT/otros): no filtra por LIES, retorna todas.
+        Si id_lies tiene valor (MIIDT): filtra por esa LIES.
+        Opcionalmente filtra por semestre.
         """
         q = (
             self._s.query(
@@ -65,7 +67,8 @@ class HorarioRepository:
                   TipoMateriaModel.id_tipo == DetalleSemestreModel.id_tipo)
             .filter(
                 SemestreModel.id_plan == id_plan,
-                DetalleSemestreModel.id_lies == id_lies,
+                # Solo filtrar por LIES si está definida (MIIDT)
+                *([DetalleSemestreModel.id_lies == id_lies] if id_lies is not None else []),
             )
         )
         if id_semestre is not None:
@@ -129,12 +132,14 @@ class HorarioRepository:
     def obtener_horarios_filtrados(
         self,
         id_plan: int,
-        id_lies: int,
+        id_lies: int | None,
         id_semestre: int,
         id_semestre_opt: int | None = None,
     ) -> list[tuple]:
-        """Retorna horarios filtrados por LIES y semestre.
+        """Retorna horarios filtrados por semestre y opcionalmente por LIES.
 
+        Si id_lies es None (DIIDT/otros): no filtra por LIES.
+        Si id_lies tiene valor (MIIDT): filtra por esa LIES.
         Incluye automáticamente las optativas (semestre con numero=0)
         si se proporciona ``id_semestre_opt``.
         """
@@ -176,7 +181,8 @@ class HorarioRepository:
                   PeriodoEscolarModel.id_periodo == PlanGeneradoModel.id_periodo)
             .filter(
                 PlanGeneradoModel.id_plan == id_plan,
-                DetalleSemestreModel.id_lies == id_lies,
+                # Solo filtrar por LIES si está definida (MIIDT)
+                *([DetalleSemestreModel.id_lies == id_lies] if id_lies is not None else []),
                 or_(*sem_filter),
             )
             .order_by(HorarioModel.id_horario)
@@ -393,8 +399,8 @@ class HorarioRepository:
                   AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
             .join(DetalleSemestreModel,
                   DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
-            .join(LiesModel,
-                  LiesModel.id_lies == DetalleSemestreModel.id_lies)
+            .outerjoin(LiesModel,
+                       LiesModel.id_lies == DetalleSemestreModel.id_lies)
             .filter(
                 HorarioModel.id_docente == id_docente,
                 PlanGeneradoModel.id_plan == id_plan,

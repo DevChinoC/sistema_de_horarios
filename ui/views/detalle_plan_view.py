@@ -710,9 +710,14 @@ class DetallePlanView(ft.Column):
 
     # ── Precarga de horarios desde historial ─────────────────
 
+    def _contexto_actual(self) -> tuple:
+        """Clave única de sesión: (id_lies, id_semestre)."""
+        id_sem = int(self._semestre_filtro_actual) if self._semestre_filtro_actual else None
+        return (self._id_lies_activa, id_sem)
+
     def _precargar_horarios(self, id_plan_generado: int) -> None:
-        """Precarga horarios de un plan_generado seleccionando el semestre
-        adecuado y recargando la tabla desde BD."""
+        """Precarga horarios de un plan_generado inyectando sus IDs
+        al contexto correspondiente de ids_sesion_por_contexto."""
         registros = self._service.obtener_horarios_de_plan_generado(id_plan_generado)
         if not registros:
             return
@@ -731,7 +736,11 @@ class DetallePlanView(ft.Column):
             if self.page:
                 self._dd_semestre.update()
             self._on_semestre_cambiado(None)
-        # Recargar tabla desde BD
+        # Inyectar IDs del historial al contexto actual
+        ctx = self._contexto_actual()
+        for r in registros:
+            self._state.agregar_id(ctx, r.id_horario)
+        # Recargar tabla con los IDs inyectados
         self._recargar_tabla()
 
     # ── Builders de opciones ──────────────────────────────────
@@ -757,13 +766,11 @@ class DetallePlanView(ft.Column):
                                  else Colores.AZUL_PRIMARIO)
             if self.page:
                 btn.update()
-        # Recargar tabla desde BD al cambiar de LIES
+        # Recargar tabla con el contexto del nuevo LIES
         if self._dd_semestre.value:
             self._on_semestre_cambiado(None)
         else:
-            self._tabla.rows = []
-            if self.page:
-                self._tabla.update()
+            self._recargar_tabla()
 
     # ── Semestre → cargar unidades ────────────────────────────
 
@@ -1019,6 +1026,9 @@ class DetallePlanView(ft.Column):
             ))
             if not ok:
                 self._msg(msg); return
+            # Registrar ID en el contexto actual (LIES + semestre)
+            if id_nuevo is not None:
+                self._state.agregar_id(self._contexto_actual(), id_nuevo)
 
         self._msg("¡Horario agregado correctamente!")
         self._recargar_tabla()
@@ -1228,17 +1238,13 @@ class DetallePlanView(ft.Column):
     # ── Fuente única de verdad: BD ─────────────────────────────
 
     def _obtener_registros_visibles(self):
-        """Fuente única de verdad para tabla, preview y PDF.
-        Consulta BD directamente — NO depende de ids_sesion."""
-        id_sem = self._semestre_filtro_actual
-        if not id_sem:
+        """Fuente de verdad para la tabla: solo horarios del contexto actual.
+        Cada combinación (LIES, semestre) tiene su propia sesión."""
+        ctx = self._contexto_actual()
+        ids = self._state.obtener_ids_contexto(ctx)
+        if not ids:
             return []
-        return self._service.obtener_horarios_filtrados(
-            id_plan=self._id_plan,
-            id_lies=self._id_lies_activa,
-            id_semestre=int(id_sem),
-            id_semestre_opt=self._sem_opt.id if self._sem_opt else None,
-        )
+        return self._service.obtener_horarios_por_ids(list(ids))
 
     # ── Tabla inferior ────────────────────────────────────────
 
@@ -1250,7 +1256,8 @@ class DetallePlanView(ft.Column):
             # Validación: siempre debe ser una lista
             if not isinstance(registros, list):
                 registros = list(registros) if registros else []
-            print(f"[_recargar_tabla] filtro={self._semestre_filtro_actual}, {len(registros)} registros desde BD")
+            ctx = self._contexto_actual()
+            print(f"[_recargar_tabla] contexto={ctx} registros={len(registros)}")
             self._tabla.rows = HorarioRowBuilder.build_many(
                 registros,
                 on_editar=self._on_editar_click,
@@ -1314,6 +1321,7 @@ class DetallePlanView(ft.Column):
         ok, msg = self._service.eliminar_horario(id_horario)
         self._msg(msg)
         if ok:
+            self._state.descartar_id(self._contexto_actual(), id_horario)
             self._recargar_tabla()
 
     # ── Helpers de PDF ─────────────────────────────────────────

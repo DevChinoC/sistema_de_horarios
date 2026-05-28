@@ -355,7 +355,7 @@ class HistorialView(ft.Container):
         pass  # filtrar al pulsar «Buscar»
 
     def _aplicar_filtros(self) -> None:
-        """Filtra el historial según los dropdowns activos."""
+        """Filtra el historial según los dropdowns activos — por IDs."""
         id_nivel  = self._dd_grado.value
         id_per    = self._dd_periodo.value
         id_plan   = self._dd_plan.value
@@ -365,28 +365,13 @@ class HistorialView(ft.Container):
             self._msg("Selecciona al menos el Grado antes de buscar.")
             return
 
-        # Nombre del grado seleccionado
-        nombre_nivel = next(
-            (n["nombre"] for n in self._niveles if str(n["id"]) == id_nivel), None)
-
+        # Filtrar por IDs — sin ambigüedad de nombres
         filtrado = self._todos
-        if nombre_nivel:
-            filtrado = [i for i in filtrado if i.nombre_nivel == nombre_nivel]
+        filtrado = [i for i in filtrado if i.id_nivel == int(id_nivel)]
         if id_per:
-            nombre_per = None
-            for item in self._todos:
-                if item.nombre_nivel == nombre_nivel:
-                    periodos = self._service.obtener_periodos_por_nivel(int(id_nivel))
-                    nombre_per = next((p.nombre for p in periodos if str(p.id) == id_per), None)
-                    break
-            if nombre_per:
-                filtrado = [i for i in filtrado if i.nombre_periodo == nombre_per]
+            filtrado = [i for i in filtrado if i.id_periodo == int(id_per)]
         if id_plan:
-            planes = self._service.obtener_planes_por_nivel_periodo(
-                int(id_nivel), int(id_per)) if id_per else []
-            nombre_plan = next((p.nombre for p in planes if str(p.id) == id_plan), None)
-            if nombre_plan:
-                filtrado = [i for i in filtrado if i.nombre_plan == nombre_plan]
+            filtrado = [i for i in filtrado if i.id_plan == int(id_plan)]
 
         for idx, item in enumerate(filtrado, start=1):
             item.clave = str(idx).zfill(3)

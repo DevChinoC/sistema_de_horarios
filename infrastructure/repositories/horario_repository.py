@@ -189,6 +189,49 @@ class HorarioRepository:
             .all()
         )
 
+    def obtener_horarios_por_ids(self, ids: list[int]) -> list[tuple]:
+        """Retorna horarios cuyos id_horario estén en la lista dada.
+
+        Usa la misma estructura de joins que obtener_horarios_filtrados
+        pero filtra por HorarioModel.id_horario IN (...).
+        """
+        if not ids:
+            return []
+        return (
+            self._s.query(
+                HorarioModel.id_horario,
+                SemestreModel.numero.label("semestre"),
+                DetalleSemestreModel.nombre_posicion.label("unidad"),
+                DocenteModel.nombre.label("docente"),
+                AulaModel.nombre.label("aula"),
+                PeriodoEscolarModel.nombre.label("periodo"),
+                DetalleHorarioModel.total_horas,
+                DetalleHorarioModel.dia,
+                DetalleHorarioModel.hora_inicio,
+                DetalleHorarioModel.hora_fin,
+                DetalleHorarioModel.id_detalle_horario,
+            )
+            .join(DetalleHorarioModel,
+                  DetalleHorarioModel.id_horario == HorarioModel.id_horario)
+            .join(PlanGeneradoModel,
+                  PlanGeneradoModel.id_plan_generado == HorarioModel.id_plan_generado)
+            .join(AsignacionMateriaModel,
+                  AsignacionMateriaModel.id_asignacion == DetalleHorarioModel.id_asignacion)
+            .join(DetalleSemestreModel,
+                  DetalleSemestreModel.id_detalle == AsignacionMateriaModel.id_detalle)
+            .join(SemestreModel,
+                  SemestreModel.id_semestre == DetalleSemestreModel.id_semestre)
+            .join(DocenteModel,
+                  DocenteModel.id_docente == HorarioModel.id_docente)
+            .join(AulaModel,
+                  AulaModel.id_aula == HorarioModel.id_aula)
+            .join(PeriodoEscolarModel,
+                  PeriodoEscolarModel.id_periodo == PlanGeneradoModel.id_periodo)
+            .filter(HorarioModel.id_horario.in_(ids))
+            .order_by(HorarioModel.id_horario)
+            .all()
+        )
+
     # ── Escritura ─────────────────────────────────────────────
 
     def obtener_o_crear_plan_generado(
@@ -738,6 +781,9 @@ class HorarioRepository:
                 NivelAcademicoModel.nombre.label("nombre_nivel"),
                 PeriodoEscolarModel.nombre.label("nombre_periodo"),
                 LiesModel.nombre.label("nombre_lies"),
+                PlanGeneradoModel.id_plan,
+                PlanEstudiosModel.id_nivel,
+                PlanGeneradoModel.id_periodo,
             )
             .join(PlanEstudiosModel,
                   PlanEstudiosModel.id_plan == PlanGeneradoModel.id_plan)

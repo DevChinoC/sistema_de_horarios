@@ -218,6 +218,38 @@ class HorarioService:
         finally:
             session.close()
 
+    def obtener_horarios_por_ids(self, ids: list[int]) -> list[HorarioRegistradoDTO]:
+        """Retorna horarios cuyos id_horario estén en la lista dada.
+
+        Usado por DetallePlanView para mostrar solo los horarios
+        de la sesión actual (ids_sesion).
+        """
+        if not ids:
+            return []
+        session = self._db.get_session()
+        try:
+            rows = HorarioRepository(session).obtener_horarios_por_ids(ids)
+            result = []
+            for idx, r in enumerate(rows, start=1):
+                result.append(HorarioRegistradoDTO(
+                    id_horario=r.id_horario,
+                    id_detalle_horario=r.id_detalle_horario,
+                    clave=str(idx).zfill(3),
+                    semestre=f"Semestre {r.semestre}" if r.semestre > 0 else "Optativa",
+                    unidad=r.unidad or "",
+                    docente=r.docente or "",
+                    aulas=r.aula or "",
+                    periodo=r.periodo or "",
+                    total_horas=r.total_horas or 0,
+                    dia=r.dia or "",
+                    hora_inicio=r.hora_inicio.strftime("%H:%M") if r.hora_inicio else "",
+                    hora_fin=r.hora_fin.strftime("%H:%M") if r.hora_fin else "",
+                    numero_semestre=r.semestre if r.semestre else 0,
+                ))
+            return result
+        finally:
+            session.close()
+
     # ── Guardar horario ───────────────────────────────────────
 
     def guardar_horario(self, dto: GuardarHorarioDTO) -> tuple[bool, str, int | None]:
@@ -622,6 +654,9 @@ class HorarioService:
             nombre_nivel: str
             nombre_periodo: str
             nombre_lies: str
+            id_plan: int
+            id_nivel: int
+            id_periodo: int
 
         session = self._db.get_session()
         try:
@@ -634,6 +669,9 @@ class HorarioService:
                     nombre_nivel=r.nombre_nivel,
                     nombre_periodo=r.nombre_periodo,
                     nombre_lies=r.nombre_lies or "",
+                    id_plan=r.id_plan,
+                    id_nivel=r.id_nivel,
+                    id_periodo=r.id_periodo,
                 )
                 for idx, r in enumerate(rows, start=1)
             ]

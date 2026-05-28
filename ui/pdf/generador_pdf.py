@@ -278,15 +278,37 @@ class GeneradorPDF:
         ]
         data = [header]
 
-        # Agrupar por unidad para no duplicar filas iguales
-        vistos: set[str] = set()
+        # ── Paso 1: Acumular horas de sesiones únicas por (unidad, docente) ──
+        # Clave de sesión: (unidad, docente, dia, hora_inicio, hora_fin)
+        # evita duplicar por LIES/grupos pero suma sesiones distintas.
+        sesiones_unicas: dict[tuple, int] = {}
+        for h in self._horarios:
+            sesion_key = (h.unidad, h.docente, h.dia, h.hora_inicio, h.hora_fin)
+            if sesion_key not in sesiones_unicas:
+                sesiones_unicas[sesion_key] = h.total_horas
+
+        # ── Paso 2: Consolidar por (unidad, docente) → horas totales ──
+        resumen: dict[str, dict] = {}
+        for (unidad, docente, dia, hi, hf), horas in sesiones_unicas.items():
+            rkey = f"{unidad}|{docente}"
+            if rkey not in resumen:
+                # Buscar el DTO original para obtener clave/semestre/aulas
+                dto_orig = next(
+                    h for h in self._horarios
+                    if h.unidad == unidad and h.docente == docente
+                )
+                resumen[rkey] = {
+                    "dto": dto_orig,
+                    "horas_acum": 0,
+                }
+            resumen[rkey]["horas_acum"] += horas
+
+        # ── Paso 3: Construir filas del resumen ──
         unidades_por_fila: list[str] = []
 
-        for h in self._horarios:
-            key = f"{h.unidad}|{h.docente}"
-            if key in vistos:
-                continue
-            vistos.add(key)
+        for rkey, info in resumen.items():
+            h = info["dto"]
+            horas_total = info["horas_acum"]
             sem = (str(h.numero_semestre)
                    if h.numero_semestre > 0 else "Optativa")
             unidades_por_fila.append(h.unidad)
@@ -294,7 +316,7 @@ class GeneradorPDF:
                 Paragraph(h.clave, _STY_CELL),
                 Paragraph(h.docente, _STY_CELL),
                 Paragraph(h.unidad, _STY_CELL),
-                Paragraph(str(h.total_horas), _STY_CELL),
+                Paragraph(str(horas_total), _STY_CELL),
                 Paragraph(sem, _STY_CELL),
                 Paragraph(h.aulas, _STY_CELL),
             ])

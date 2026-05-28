@@ -157,11 +157,29 @@ class GeneradorPdfDocente:
         ]
         data = [header]
 
-        # Mapa: (dia, hora_inicio) → nombre_materia
-        mapa: dict[tuple, str] = {}
+        # PDF: agrupar por materia → set(LIES) por celda.
+        # Resultado: "Materia A\n(TICs, Construcción)" sin duplicados.
+        # Estructura: (dia, hora) → {materia: set(lies)}
+        mapa_agrupado: dict[tuple, dict[str, set[str]]] = {}
         for f in filas:
             if f.dia and f.hora_inicio:
-                mapa[(f.dia, f.hora_inicio)] = f.nombre_materia
+                key = (f.dia, f.hora_inicio)
+                materias = mapa_agrupado.setdefault(key, {})
+                nombre = f.nombre_materia.strip()
+                lies_set = materias.setdefault(nombre, set())
+                if f.nombre_lies and f.nombre_lies.strip():
+                    lies_set.add(f.nombre_lies.strip())
+
+        # Convertir a mapa de etiquetas consolidadas para el render
+        mapa: dict[tuple, list[str]] = {}
+        for key, materias in mapa_agrupado.items():
+            etiquetas = []
+            for nombre, lies_set in sorted(materias.items()):
+                if lies_set:
+                    etiquetas.append(f"{nombre}\n({', '.join(sorted(lies_set))})")
+                else:
+                    etiquetas.append(nombre)
+            mapa[key] = etiquetas
 
         # Datos para mapeo de colores por celda
         cell_texts: list[list[str]] = []
@@ -171,9 +189,16 @@ class GeneradorPdfDocente:
             fila = [Paragraph(hora_txt, _STY_HORA)]
             row_texts: list[str] = []
             for dia in _DIAS:
-                materia = mapa.get((dia, hi), "")
-                row_texts.append(materia)
-                fila.append(Paragraph(materia, _STY_CELL))
+                # Unir múltiples materias; convertir \n a <br/> para Paragraph
+                lista = mapa.get((dia, hi), [])
+                # Texto plano para detección de color
+                materia_plano = "\n".join(lista)
+                # HTML para Paragraph: convertir todos los \n a <br/>
+                materia_html = "<br/>".join(
+                    etiq.replace("\n", "<br/>") for etiq in lista
+                )
+                row_texts.append(materia_plano)
+                fila.append(Paragraph(materia_html, _STY_CELL))
             cell_texts.append(row_texts)
             data.append(fila)
 
@@ -208,7 +233,7 @@ class GeneradorPdfDocente:
         # Color azul claro para celdas con materia
         for row_idx, row_texts in enumerate(cell_texts, start=1):
             for col_idx, txt in enumerate(row_texts, start=1):
-                if txt:
+                if txt.strip():  # texto plano, sin HTML
                     style_cmds.append(
                         ("BACKGROUND", (col_idx, row_idx),
                          (col_idx, row_idx), _AZUL_CELL)

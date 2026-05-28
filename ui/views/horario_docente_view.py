@@ -558,30 +558,15 @@ class HorarioDocenteView(ft.Container):
             )
         )
 
+        # Preview: solo nombres de materia, SIN LIES, SIN duplicados.
+        # Si la misma materia aparece con varias LIES, se muestra una sola vez.
         mapa: dict[tuple, set[str]] = {}
 
         for f in filas:
             if f.dia and f.hora_inicio:
                 key = (f.dia, f.hora_inicio)
-
-                label = f.nombre_materia
-
-                if f.nombre_lies:
-                    label += f" ({f.nombre_lies})"
-
-                mapa.setdefault(key, set()).add(label)
-
-        def _altura_fila(textos: list[str]) -> int:
-            max_lineas = 1
-
-            for texto in textos:
-                if texto:
-                    max_lineas = max(
-                        max_lineas,
-                        texto.count("\n") + 1
-                    )
-
-            return max(45, (max_lineas * 18) + 12)
+                # Solo el nombre de la materia — sin LIES
+                mapa.setdefault(key, set()).add(f.nombre_materia.strip())
 
         # ───────────────── HEADER ─────────────────
 
@@ -627,19 +612,32 @@ class HorarioDocenteView(ft.Container):
 
         # ───────────────── FILAS ─────────────────
 
+        def _alto_uniforme(textos: list[str]) -> int:
+            """Calcula altura compartida para TODA la fila.
+
+            Estima líneas según longitud del texto más largo
+            (ya sin LIES, sin duplicados → contenido compacto).
+            """
+            max_len = max((len(t) for t in textos if t), default=0)
+            max_newlines = max((t.count("\n") for t in textos if t), default=0)
+            # Líneas por wrap (~25 chars por línea en 220px a size=10)
+            lineas_wrap = max((max_len // 25) + 1, max_newlines + 1)
+            return max(40, (lineas_wrap * 16) + 12)
+
         for (hi, hf) in franjas:
 
             hora_txt = f"{hi} - {hf}"
 
-            materias_por_fila = []
-
+            # 1. Pre-calcular textos de TODAS las celdas de la fila
+            textos_fila = []
             for dia in _DIAS:
                 materias_set = mapa.get((dia, hi), set())
-                materia = "\n".join(sorted(materias_set))
-                materias_por_fila.append(materia)
+                textos_fila.append("\n".join(sorted(materias_set)))
 
-            alto_fila = _altura_fila(materias_por_fila)
+            # 2. Altura uniforme para TODA la fila
+            alto_fila = _alto_uniforme(textos_fila)
 
+            # 3. Celda de hora — misma altura que las demás
             controles_fila = [
                 ft.Container(
                     width=140,
@@ -657,19 +655,15 @@ class HorarioDocenteView(ft.Container):
                 )
             ]
 
-            for dia in _DIAS:
-
-                materias_set = mapa.get((dia, hi), set())
-
-                materia = "\n".join(sorted(materias_set))
-
+            # 4. Celdas de días — misma altura uniforme
+            for materia in textos_fila:
                 controles_fila.append(
                     ft.Container(
                         width=220,
                         height=alto_fila,
                         bgcolor="#B5CBF7" if materia else None,
                         border=ft.border.all(1, "#D0D7E2"),
-                        alignment=ft.alignment.top_center,
+                        alignment=ft.alignment.center,
                         padding=ft.padding.all(6),
                         content=ft.Text(
                             materia,

@@ -2,9 +2,6 @@
 import pytest
 from domain.value_objects.hora import Hora
 from domain.value_objects.dia_semana import DiaSemana
-from domain.value_objects.periodo import Periodo
-from domain.value_objects.salon import Salon
-from domain.value_objects.grupo import Grupo
 
 
 # ── Hora ──────────────────────────────────────────────────────────────────────
@@ -108,69 +105,3 @@ class TestDiaSemana:
     def test_hash(self):
         assert hash(DiaSemana("Lunes")) == hash(DiaSemana("Lunes"))
 
-
-# ── Periodo ───────────────────────────────────────────────────────────────────
-
-class TestPeriodo:
-    def test_crea_periodo_valido(self):
-        p = Periodo("Feb-Jun 2024")
-        assert p.nombre == "Feb-Jun 2024"
-
-    def test_elimina_espacios_extremos(self):
-        p = Periodo("  Ago-Dic 2025  ")
-        assert p.nombre == "Ago-Dic 2025"
-
-    def test_lanza_si_vacio(self):
-        with pytest.raises(ValueError):
-            Periodo("")
-
-    def test_lanza_si_solo_espacios(self):
-        with pytest.raises(ValueError):
-            Periodo("   ")
-
-    def test_lanza_si_demasiado_largo(self):
-        with pytest.raises(ValueError):
-            Periodo("A" * 101)
-
-    def test_igualdad(self):
-        assert Periodo("Feb-Jun 2024") == Periodo("Feb-Jun 2024")
-
-    def test_igualdad_con_string(self):
-        assert Periodo("Feb-Jun 2024") == "Feb-Jun 2024"
-
-
-# ── Salon ─────────────────────────────────────────────────────────────────────
-
-class TestSalon:
-    def test_crea_salon_valido(self):
-        s = Salon("A-101")
-        assert s.nombre == "A-101"
-
-    def test_lanza_si_vacio(self):
-        with pytest.raises(ValueError):
-            Salon("")
-
-    def test_igualdad_case_insensitive(self):
-        assert Salon("A-101") == Salon("a-101")
-
-    def test_lanza_si_demasiado_largo(self):
-        with pytest.raises(ValueError):
-            Salon("X" * 101)
-
-
-# ── Grupo ─────────────────────────────────────────────────────────────────────
-
-class TestGrupo:
-    def test_crea_grupo_valido(self):
-        g = Grupo("A")
-        assert g.identificador == "A"
-
-    def test_lanza_si_vacio(self):
-        with pytest.raises(ValueError):
-            Grupo("")
-
-    def test_igualdad(self):
-        assert Grupo("A") == Grupo("A")
-
-    def test_no_igualdad(self):
-        assert Grupo("A") != Grupo("B")

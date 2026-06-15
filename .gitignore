@@ -1,5 +1,6 @@
 # Entorno virtual
 venv/
+.venv/
 env/
 
 # Variables sensibles
@@ -9,13 +10,15 @@ env/
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
 
 # Archivos de sistema
 .DS_Store
 Thumbs.db
-
-# VS Code
-.vscode/
 
 # Logs
 *.log
@@ -25,3 +28,6 @@ Thumbs.db
 
 # Archivos temporales
 *.tmp
+
+# Gemini
+.gemini/

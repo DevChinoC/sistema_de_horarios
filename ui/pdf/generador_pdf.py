@@ -4,6 +4,8 @@ Genera el PDF de horario en orientación vertical (carta / letter):
   - Membrete (imagen de fondo a página completa, opcional)
   - Encabezado: Plan de estudios + LIES
   - Tabla de horario semanal (Hora | Lunes … Sábado) con colores pastel
+    Construida con TIMELINE DINÁMICO — cada fila es un slot temporal,
+    NO una materia. Las materias ocupan spans verticales proporcionales.
   - Tabla resumen (Clave | Docente | Unidad | Horas | Semestre | Aula)
 
 Los textos de las celdas se envuelven automáticamente mediante Paragraph
@@ -11,6 +13,7 @@ para evitar desbordamientos en orientación vertical.
 """
 
 import os
+from datetime import datetime, timedelta
 from typing import Optional
 
 from reportlab.lib.pagesizes import letter
@@ -69,6 +72,10 @@ _STY_CELL = ParagraphStyle(
 # ─────────────────────────────────────────────────────────────
 class GeneradorPDF:
     """Genera el PDF de horario escolar en orientación vertical (portrait).
+
+    Usa un motor de timeline dinámico: las filas de la tabla representan
+    slots temporales uniformes (30 o 60 min), NO materias individuales.
+    Las materias se insertan como spans verticales proporcionales.
 
     Parámetros
     ----------
@@ -172,52 +179,185 @@ class GeneradorPDF:
         )
         canvas.restoreState()
 
+    # ══════════════════════════════════════════════════════════
+    # Motor de Timeline Dinámico
+    # ══════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _parse_time(t: str) -> datetime:
+        """Convierte 'HH:MM' a datetime para aritmética."""
+        return datetime.strptime(t[:5], "%H:%M")
+
+    def _detectar_resolucion_minima(self) -> int:
+        """Detecta si el horario necesita slots de 30 o 60 minutos.
+
+        Si alguna hora_inicio o hora_fin tiene minutos != 0 y != 30,
+        usa 30 min. Si todo es :00 exacto, usa 60 min.
+        Si existe :30, usa 30 min.
+        """
+        for h in self._horarios:
+            for t in (h.hora_inicio, h.hora_fin):
+                if not t:
+                    continue
+                mins = self._parse_time(t).minute
+                if mins not in (0, 30, 60):
+                    return 30
+                if mins == 30:
+                    return 30
+        return 60
+
+    def _obtener_rango_horario(self) -> tuple[datetime, datetime]:
+        """Retorna (hora_min, hora_max) del rango de todos los horarios."""
+        horas_inicio = []
+        horas_fin = []
+        for h in self._horarios:
+            if h.hora_inicio and h.hora_fin:
+                horas_inicio.append(self._parse_time(h.hora_inicio))
+                horas_fin.append(self._parse_time(h.hora_fin))
+        if not horas_inicio:
+            # Fallback: 08:00 - 15:00
+            return self._parse_time("08:00"), self._parse_time("15:00")
+        return min(horas_inicio), max(horas_fin)
+
+    def _generar_slots(self) -> list[tuple[str, str]]:
+        """Genera la lista de slots temporales uniformes.
+
+        Retorna [(inicio, fin), ...] como strings 'HH:MM'.
+        Ejemplo con resolución 60: [('08:00','09:00'), ('09:00','10:00'), ...]
+        """
+        resolucion = self._detectar_resolucion_minima()
+        hora_min, hora_max = self._obtener_rango_horario()
+        delta = timedelta(minutes=resolucion)
+
+        slots = []
+        current = hora_min
+        while current < hora_max:
+            next_t = current + delta
+            slots.append((current.strftime("%H:%M"), next_t.strftime("%H:%M")))
+            current = next_t
+        return slots
+
+    def _crear_grid(self, slots: list[tuple[str, str]]) -> dict:
+        """Crea un grid vacío: grid[dia][slot_idx] = info de celda.
+
+        Cada celda: {"unidad": "", "color": None, "span_start": False, "skip": False}
+        """
+        grid = {}
+        for dia in _DIAS:
+            grid[dia] = {}
+            for idx in range(len(slots)):
+                grid[dia][idx] = {
+                    "unidad": "",
+                    "color": None,
+                    "span_start": False,
+                    "skip": False,  # True si esta celda es parte de un span
+                }
+        return grid
+
+    def _insertar_materias(self, grid: dict, slots: list[tuple[str, str]]) -> list:
+        """Inserta las materias en el grid según su duración real.
+
+        Retorna lista de spans: [(col_idx, row_start, row_end), ...]
+        para aplicar SPAN en la tabla de reportlab.
+        """
+        # Índice rápido de slot_inicio → idx
+        slot_map = {s[0]: i for i, s in enumerate(slots)}
+        # Índice de fin de slot → idx (para calcular último slot)
+        slot_end_map = {s[1]: i for i, s in enumerate(slots)}
+
+        spans = []
+
+        for h in self._horarios:
+            if not h.dia or not h.hora_inicio or not h.hora_fin:
+                continue
+            if h.dia not in grid:
+                continue
+
+            hi = h.hora_inicio[:5]
+            hf = h.hora_fin[:5]
+
+            # Encontrar el primer slot que empieza a la hora de inicio
+            if hi not in slot_map:
+                continue
+            start_idx = slot_map[hi]
+
+            # Encontrar el último slot que termina a la hora de fin
+            if hf not in slot_end_map:
+                # Si hora_fin no coincide exactamente, buscar el slot más cercano
+                end_idx = start_idx
+                for idx, (_, sf) in enumerate(slots):
+                    if self._parse_time(sf) <= self._parse_time(hf):
+                        end_idx = idx
+            else:
+                end_idx = slot_end_map[hf]
+
+            dia = h.dia
+            col_idx = _DIAS.index(dia) + 1 if dia in _DIAS else None
+            if col_idx is None:
+                continue
+
+            # Verificar solapamientos — no escribir si ya ocupado
+            conflicto = False
+            for idx in range(start_idx, end_idx + 1):
+                if grid[dia][idx]["skip"] or grid[dia][idx]["unidad"]:
+                    conflicto = True
+                    break
+
+            if conflicto:
+                continue
+
+            # Escribir texto solo en la primera celda
+            grid[dia][start_idx]["unidad"] = h.unidad
+            grid[dia][start_idx]["color"] = self._color_map.get(h.unidad)
+            grid[dia][start_idx]["span_start"] = True
+
+            # Marcar celdas internas como parte del span
+            for idx in range(start_idx + 1, end_idx + 1):
+                grid[dia][idx]["skip"] = True
+                grid[dia][idx]["color"] = self._color_map.get(h.unidad)
+
+            # Registrar span si ocupa más de una celda
+            if end_idx > start_idx:
+                spans.append((col_idx, start_idx, end_idx))
+
+        return spans
+
     # ── Tabla horario semanal ─────────────────────────────────
 
     def _tabla_horario_semanal(self) -> Table:
         """Construye la tabla Hora | Lunes | Martes … | Sábado.
 
-        Usa Paragraph en cada celda para que el texto se ajuste
-        automáticamente al ancho de columna sin desbordarse.
+        Motor de timeline dinámico:
+        1. Detecta resolución (30/60 min)
+        2. Genera slots uniformes
+        3. Crea grid temporal
+        4. Inserta materias con spans verticales
+        5. Construye la tabla con datos y estilos
         """
+        slots = self._generar_slots()
+        grid = self._crear_grid(slots)
+        spans = self._insertar_materias(grid, slots)
 
-        # Recopilar franjas horarias únicas ordenadas
-        franjas = sorted(set(
-            (h.hora_inicio, h.hora_fin)
-            for h in self._horarios
-            if h.hora_inicio and h.hora_fin
-        ))
+        resolucion = self._detectar_resolucion_minima()
 
-        # Encabezado (Paragraph para wrapping)
+        # ── Encabezado ────────────────────────────────────────
         header = [Paragraph("Hora", _STY_HDR)] + [
             Paragraph(d, _STY_HDR) for d in _DIAS
         ]
         data = [header]
 
-        # Mapa rápido: (dia, hora_inicio) → lista de DTOs
-        mapa: dict[tuple, list[HorarioRegistradoDTO]] = {}
-        for h in self._horarios:
-            if h.dia and h.hora_inicio:
-                mapa.setdefault((h.dia, h.hora_inicio), []).append(h)
-
-        # Textos originales para color mapping
-        cell_texts: list[list[str]] = []
-        # Unidades individuales por celda (para color mapping)
-        cell_units: list[list[list[str]]] = []
-
-        for (hi, hf) in franjas:
-            fila = [Paragraph(f"{hi[:5]}-{hf[:5]}", _STY_HORA)]
-            row_texts: list[str] = []
-            row_units: list[list[str]] = []
+        # ── Filas del timeline ────────────────────────────────
+        for slot_idx, (si, sf) in enumerate(slots):
+            fila = [Paragraph(f"{si}-{sf}", _STY_HORA)]
             for dia in _DIAS:
-                hs = mapa.get((dia, hi), [])
-                units = [h.unidad for h in hs]
-                txt = "<br/>".join(units) if units else ""
-                row_texts.append(txt)
-                row_units.append(units)
-                fila.append(Paragraph(txt, _STY_CELL))
-            cell_texts.append(row_texts)
-            cell_units.append(row_units)
+                celda = grid[dia][slot_idx]
+                if celda["skip"]:
+                    # Celda parte de un span — vacía (se fusionará)
+                    fila.append(Paragraph("", _STY_CELL))
+                elif celda["unidad"]:
+                    fila.append(Paragraph(celda["unidad"], _STY_CELL))
+                else:
+                    fila.append(Paragraph("", _STY_CELL))
             data.append(fila)
 
         # Si no hay datos de horario
@@ -226,37 +366,51 @@ class GeneradorPDF:
                 [Paragraph("Sin horarios registrados", _STY_CELL)]
                 + [Paragraph("", _STY_CELL)] * 6
             )
-            cell_texts.append([""] * 6)
-            cell_units.append([[] for _ in range(6)])
 
-        # Anchos adaptados a portrait (letter vertical)
+        # ── Anchos de columna ─────────────────────────────────
         page_w = letter[0] - 3 * cm
         col_hora = 2.0 * cm
         col_dia  = (page_w - col_hora) / len(_DIAS)
         col_widths = [col_hora] + [col_dia] * len(_DIAS)
 
-        tabla = Table(data, colWidths=col_widths, repeatRows=1)
+        # ── Alturas de fila dinámicas ─────────────────────────
+        row_h = 18 if resolucion == 30 else 28
+        row_heights = [None] + [row_h] * len(slots)  # None = auto para header
 
+        tabla = Table(data, colWidths=col_widths, rowHeights=row_heights,
+                      repeatRows=1)
+
+        # ── Estilos base ──────────────────────────────────────
         style_cmds = [
             ("BACKGROUND",    (0, 0), (-1, 0),  _AZUL_HDR),
             ("BACKGROUND",    (0, 1), (-1, -1), colors.white),
             ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
             ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
             ("GRID",          (0, 0), (-1, -1), 0.5, _GRIS_BORDE),
-            ("TOPPADDING",    (0, 0), (-1, -1), 2),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING",    (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
             ("LEFTPADDING",   (0, 0), (-1, -1), 2),
             ("RIGHTPADDING",  (0, 0), (-1, -1), 2),
         ]
 
-        # Colores pastel por celda según materia
-        for row_idx, row_units in enumerate(cell_units, start=1):
-            for col_idx, units in enumerate(row_units, start=1):
-                if len(units) == 1 and units[0] in self._color_map:
+        # ── Colores pastel por celda ──────────────────────────
+        for slot_idx in range(len(slots)):
+            for dia_idx, dia in enumerate(_DIAS):
+                col = dia_idx + 1
+                row = slot_idx + 1  # +1 por header
+                celda = grid[dia][slot_idx]
+                if celda["color"]:
                     style_cmds.append(
-                        ("BACKGROUND", (col_idx, row_idx),
-                         (col_idx, row_idx), self._color_map[units[0]])
+                        ("BACKGROUND", (col, row), (col, row), celda["color"])
                     )
+
+        # ── Spans verticales (fusión de celdas) ───────────────
+        for (col_idx, row_start, row_end) in spans:
+            # reportlab SPAN: (col, row_start+1) → (col, row_end+1)
+            # +1 porque row 0 es el header
+            style_cmds.append(
+                ("SPAN", (col_idx, row_start + 1), (col_idx, row_end + 1))
+            )
 
         tabla.setStyle(TableStyle(style_cmds))
         return tabla

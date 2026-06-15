@@ -1,9 +1,8 @@
 """
 Reglas de negocio para validación de horarios.
 
-Extrae la lógica de validación que actualmente vive en:
-- HorarioStateManager.validar_horario() (ui/views/horario_state.py)
-- DetallePlanView._agregar() (ui/views/detalle_plan_view.py)
+Contiene la lógica de validación de traslapes y conflictos
+entre horarios de tronco común y optativas.
 
 PROHIBIDO: importar Flet aquí.
 PROHIBIDO: acceder a base de datos aquí.

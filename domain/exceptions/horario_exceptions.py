@@ -54,26 +54,6 @@ class HorarioInvalidoException(Exception):
         return f"Campo '{self.campo}' inválido: {self.razon}"
 
 
-class DocenteNoEncontradoException(Exception):
-    """Se lanza cuando no se encuentra un docente por ID."""
-
-    def __init__(self, id_docente: int) -> None:
-        super().__init__(f"Docente con ID {id_docente} no encontrado.")
-        self.id_docente = id_docente
-
-
-class AulaNoDisponibleException(Exception):
-    """Se lanza cuando un aula no está disponible en el horario solicitado."""
-
-    def __init__(self, id_aula: int, dia: str, hora_inicio: str, hora_fin: str) -> None:
-        super().__init__(
-            f"El aula {id_aula} no está disponible el {dia} "
-            f"de {hora_inicio} a {hora_fin}."
-        )
-        self.id_aula = id_aula
-        self.dia = dia
-        self.hora_inicio = hora_inicio
-        self.hora_fin = hora_fin
 
 
 class PeriodoInvalidoException(Exception):

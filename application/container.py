@@ -43,14 +43,6 @@ class Container:
         from domain.rules.horario_validator import HorarioValidator
         return HorarioValidator()
 
-    def docente_validator(self):
-        from domain.rules.docente_validator import DocenteValidator
-        return DocenteValidator()
-
-    def salon_validator(self):
-        from domain.rules.salon_validator import SalonValidator
-        return SalonValidator()
-
     # ── Use Cases ─────────────────────────────────────────────
 
     def crear_horario_use_case(self):

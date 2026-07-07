@@ -14,7 +14,7 @@ from application.controllers.detalle_plan_controller import DetallePlanControlle
 
 from ui.utils.reset_utils import reset_dropdown
 from ui.components.time_picker import ScrollTimePicker
-from ui.components.fila_horario import FilaHorario as _FilaHorario
+from ui.components.fila_horario import FilaHorario as _FilaHorario, _DIAS
 from ui.components.dropdown_con_nuevo import DropdownConNuevo as _DropdownConNuevo
 from ui.components.buscador_unidad import BuscadorUnidad as _BuscadorUnidad
 from application.mappers.horario_mapper import HorarioMapper
@@ -1225,7 +1225,8 @@ class DetallePlanView(ft.Column):
             self._col_horarios.controls.remove(fila)
 
         fila = self._filas_horario[0]
-        fila.dd_dia = reset_dropdown(fila.dd_dia)
+        _dia_opts = [_opcion(d, d) for d in _DIAS]
+        fila.dd_dia = reset_dropdown(fila.dd_dia, options=_dia_opts, disabled=False)
         fila.hora_inicio.set_from_24h("07:00")
         fila.hora_fin.set_from_24h("08:00")
         self._actualizar_total(None)

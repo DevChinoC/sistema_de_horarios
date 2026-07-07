@@ -1,9 +1,22 @@
 import os
+import sys
+from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from dotenv import load_dotenv
 
-load_dotenv()
+def _find_env():
+    """Busca el archivo .env junto al ejecutable o en el directorio del proyecto."""
+    if getattr(sys, 'frozen', False):
+        # Ejecutable empaquetado (.exe)
+        base = Path(sys.executable).parent
+    else:
+        # Modo de desarrollo normal
+        base = Path(__file__).resolve().parent.parent.parent
+    env_path = base / ".env"
+    return str(env_path) if env_path.exists() else None
+
+load_dotenv(_find_env())
 
 
 class Base(DeclarativeBase):

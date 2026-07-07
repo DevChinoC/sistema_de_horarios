@@ -30,4 +30,13 @@ Thumbs.db
 *.tmp
 
 # Gemini
-.gemini/
+.gemini/
+
+# Compilacion y Empaquetado (PyInstaller / Flet pack)
+build/
+dist/
+*.spec
+
+# Archivos de salida (PDFs generados)
+out/
+*.pdf

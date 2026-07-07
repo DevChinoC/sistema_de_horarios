@@ -28,11 +28,10 @@ def main(page: ft.Page) -> None:
         ),
     )
 
-    # ── Fuentes ───────────────────────────────────────────────
     page.fonts = {
-        Fuentes.TITULO:  "https://raw.githubusercontent.com/google/fonts/main/ofl/adamina/Adamina-Regular.ttf",
-        Fuentes.BOTONES: "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf",
-        Fuentes.CAMPOS:  "https://raw.githubusercontent.com/google/fonts/main/ofl/robotocondensed/RobotoCondensed%5Bwght%5D.ttf",
+        Fuentes.TITULO:  "fonts/Adamina-Regular.ttf",
+        Fuentes.BOTONES: "fonts/Inter.ttf",
+        Fuentes.CAMPOS:  "fonts/RobotoCondensed.ttf",
     }
 
     # ── Navegación (Container provee HorarioService singleton) ─
